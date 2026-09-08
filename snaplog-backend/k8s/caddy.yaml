@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: snaplog-caddyfile
+  namespace: snaplog
+data:
+  Caddyfile: |
+    {
+      auto_https off
+    }
+    :80 {
+      reverse_proxy snaplog-app.snaplog.svc.cluster.local:8080 {
+        header_up X-Real-IP {remote_host}
+      }
+      request_body {
+        max_size 64MB
+      }
+      header {
+        X-Proxy "caddy"
+        -Server
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snaplog-caddy
+  namespace: snaplog
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: snaplog-caddy
+  template:
+    metadata:
+      labels:
+        app: snaplog-caddy
+    spec:
+      containers:
+        - name: caddy
+          image: caddy:2-alpine
+          args: ["caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+          ports:
+            - containerPort: 80
+              name: http
+          volumeMounts:
+            - name: caddyfile
+              mountPath: /etc/caddy
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: caddyfile
+          configMap:
+            name: snaplog-caddyfile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snaplog-caddy
+  namespace: snaplog
+spec:
+  type: LoadBalancer
+  selector:
+    app: snaplog-caddy
+  ports:
+    - port: 80
+      targetPort: http

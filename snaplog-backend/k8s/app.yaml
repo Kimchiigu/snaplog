@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snaplog-app
+  namespace: snaplog
+  labels:
+    app: snaplog-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: snaplog-app
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: snaplog-app
+    spec:
+      containers:
+        - name: app
+          image: snaplog-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["serve", "--hostname", "0.0.0.0", "--port", "8080"]
+          envFrom:
+            - secretRef:
+                name: snaplog-env
+          env:
+            - name: REDIS_HOST
+              value: snaplog-redis
+          ports:
+            - containerPort: 8080
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          terminationGracePeriodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: snaplog-app
+  namespace: snaplog
+spec:
+  selector:
+    app: snaplog-app
+  ports:
+    - port: 8080
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: snaplog-app
+  namespace: snaplog
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: snaplog-app
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: snaplog-app
+  namespace: snaplog
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: snaplog-app

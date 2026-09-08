@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snaplog-worker
+  namespace: snaplog
+  labels:
+    app: snaplog-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snaplog-worker
+  template:
+    metadata:
+      labels:
+        app: snaplog-worker
+    spec:
+      containers:
+        - name: worker
+          image: snaplog-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["queues"]
+          envFrom:
+            - secretRef:
+                name: snaplog-env
+          env:
+            - name: REDIS_HOST
+              value: snaplog-redis
+            - name: POD_ROLE
+              value: worker
+          # A stuck FFmpeg stitch should not take the worker down silently:
+          # if the process stops responding to signals it gets restarted.
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: snaplog-worker
+  namespace: snaplog
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: snaplog-worker
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60

@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: snaplog-migrate
+  namespace: snaplog
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: snaplog-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["migrate", "--yes"]
+          envFrom:
+            - secretRef:
+                name: snaplog-env
+          env:
+            - name: REDIS_HOST
+              value: snaplog-redis

@@ -1,0 +1,66 @@
+name: SnapLog
+options:
+  bundleIdPrefix: com.christopherhardygunawan
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  Mixpanel:
+    url: https://github.com/mixpanel/mixpanel-swift
+    from: 5.0.0
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  SnapLog:
+    type: application
+    platform: iOS
+    sources:
+      - SnapLog
+    dependencies:
+      - package: Mixpanel
+    settings:
+      base:
+        ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLog uses the camera to record your short video logs."
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "SnapLog uses the microphone to record audio with your video logs."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_STRICT_CONCURRENCY: complete
+    preBuildScripts:
+      - name: SwiftLint
+        script: |
+          export PATH="$PATH:/opt/homebrew/bin"
+          if which swiftlint >/dev/null; then
+            cd "${SRCROOT}"
+            swiftlint
+          else
+            echo "warning: SwiftLint not installed, download from https://github.com/realm/SwiftLint"
+          fi
+
+  SnapLogTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - SnapLogTests
+    dependencies:
+      - target: SnapLog
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  SnapLog:
+    build:
+      targets:
+        SnapLog: all
+        SnapLogTests: [test]
+    test:
+      targets:
+        - SnapLogTests

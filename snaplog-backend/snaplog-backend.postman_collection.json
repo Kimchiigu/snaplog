@@ -1,0 +1,370 @@
+{
+  "info": {
+    "name": "SnapLog Backend",
+    "description": "SnapLog Vapor backend API. Requests auto-chain: Dev Login saves {{token}}, Create Room saves {{roomId}}/{{inviteCode}}, Upload URL saves {{uploadURL}}/{{s3Key}}. Run in order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "displayName", "value": "Postman Tester" },
+    { "key": "token", "value": "" },
+    { "key": "roomId", "value": "" },
+    { "key": "inviteCode", "value": "" },
+    { "key": "s3Key", "value": "" },
+    { "key": "uploadURL", "value": "" },
+    { "key": "joinToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/", "host": ["{{baseUrl}}"], "path": [""] }
+      }
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Dev Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"token\", body.token);",
+                  "pm.test(\"token saved\", () => pm.expect(body.token).to.be.a(\"string\").and.not.empty);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"{{displayName}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/dev", "host": ["{{baseUrl}}"], "path": ["api", "auth", "dev"] }
+          }
+        },
+        {
+          "name": "Dev Login (second user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set(\"joinToken\", pm.response.json().token);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"Second User\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/dev", "host": ["{{baseUrl}}"], "path": ["api", "auth", "dev"] }
+          }
+        },
+        {
+          "name": "Apple Sign-In (expects 401 with fake token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"401 for a malformed identity token\", () => pm.response.to.have.status(401));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identityToken\": \"garbage.token.here\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/apple", "host": ["{{baseUrl}}"], "path": ["api", "auth", "apple"] }
+          }
+        },
+        {
+          "name": "Me (rooms without token, expects 401)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/rooms", "host": ["{{baseUrl}}"], "path": ["api", "rooms"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "item": [
+        {
+          "name": "Create Room",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"roomId\", body.id);",
+                  "pm.collectionVariables.set(\"inviteCode\", body.inviteCode);",
+                  "pm.test(\"6-char invite code\", () => pm.expect(body.inviteCode).to.have.lengthOf(6));",
+                  "pm.test(\"owner is first member\", () => pm.expect(body.members[0].role).to.eql(\"owner\"));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Room\",\n  \"roomType\": \"log\",\n  \"maxMembers\": 4\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rooms", "host": ["{{baseUrl}}"], "path": ["api", "rooms"] }
+          }
+        },
+        {
+          "name": "List My Rooms",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const rooms = pm.response.json();",
+                  "pm.test(\"contains created room\", () => pm.expect(rooms.some(r => r.id === pm.collectionVariables.get(\"roomId\"))).to.be.true);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/rooms", "host": ["{{baseUrl}}"], "path": ["api", "rooms"] }
+          }
+        },
+        {
+          "name": "Join Room (second user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"two members\", () => pm.expect(pm.response.json().members).to.have.lengthOf(2));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{joinToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inviteCode\": \"{{inviteCode}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rooms/join", "host": ["{{baseUrl}}"], "path": ["api", "rooms", "join"] }
+          }
+        },
+        {
+          "name": "Join Room again (expects 409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{joinToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inviteCode\": \"{{inviteCode}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rooms/join", "host": ["{{baseUrl}}"], "path": ["api", "rooms", "join"] }
+          }
+        },
+        {
+          "name": "Join unknown code (expects 404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"inviteCode\": \"ZZZZZZ\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rooms/join", "host": ["{{baseUrl}}"], "path": ["api", "rooms", "join"] }
+          }
+        },
+        {
+          "name": "Create Room invalid type (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bad\",\n  \"roomType\": \"party\",\n  \"maxMembers\": 4\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/rooms", "host": ["{{baseUrl}}"], "path": ["api", "rooms"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Media Logs",
+      "item": [
+        {
+          "name": "Get Upload URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"200 OK\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set(\"uploadURL\", body.uploadURL);",
+                  "pm.collectionVariables.set(\"s3Key\", body.s3Key);",
+                  "pm.test(\"presigned R2 URL\", () => pm.expect(body.uploadURL).to.include(\"X-Amz-Signature\"));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"fileExtension\": \"mp4\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/logs/upload-url", "host": ["{{baseUrl}}"], "path": ["api", "logs", "upload-url"] }
+          }
+        },
+        {
+          "name": "Get Upload URL bad ext (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"fileExtension\": \"avi\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/logs/upload-url", "host": ["{{baseUrl}}"], "path": ["api", "logs", "upload-url"] }
+          }
+        },
+        {
+          "name": "Upload to R2 (binary body)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"R2 accepted upload (200)\", () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "video/mp4" }],
+            "body": {
+              "mode": "file",
+              "file": { "src": "" }
+            },
+            "url": {
+              "raw": "{{uploadURL}}",
+              "host": ["{{uploadURL}}"]
+            },
+            "description": "Pick a small .mp4 file in the Body tab. Set baseUrl + run Dev Login + Create Room + Get Upload URL first."
+          }
+        },
+        {
+          "name": "Confirm Upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"202 Accepted (stitch job queued)\", () => pm.response.to.have.status(202));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"s3Key\": \"{{s3Key}}\",\n  \"duration\": 5\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/logs/confirm", "host": ["{{baseUrl}}"], "path": ["api", "logs", "confirm"] }
+          }
+        },
+        {
+          "name": "Confirm invalid duration (expects 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"roomId\": \"{{roomId}}\",\n  \"s3Key\": \"{{s3Key}}\",\n  \"duration\": 120\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/logs/confirm", "host": ["{{baseUrl}}"], "path": ["api", "logs", "confirm"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Dashboard",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/admin/dashboard", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard"] }
+          }
+        }
+      ]
+    }
+  ]
+}

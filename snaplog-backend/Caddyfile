@@ -1,0 +1,22 @@
+{
+	# Local development: no auto-TLS. In production, replace :80 with your domain
+	# (e.g. api.snaplog.example.com) and Caddy will fetch Let's Encrypt certs.
+	auto_https off
+}
+
+:80 {
+	# Proxy everything to the Vapor app. WebSockets (/presence) work out of the box.
+	reverse_proxy app:8080 {
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Larger uploads for the admin media form.
+	request_body {
+		max_size 64MB
+	}
+
+	header {
+		X-Proxy "caddy"
+		-Server
+	}
+}

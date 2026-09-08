@@ -1,0 +1,189 @@
+#extend("base"):
+#export("title"):Dashboard#endexport
+#export("body"):
+#if(flash != ""):
+<div class="flash">#(flash)</div>
+#endif
+
+<div class="cards">
+    <div class="card"><div class="value">#(pods.count)</div><div class="label">Active Pods</div></div>
+    <div class="card"><div class="value">#(totalRequests)</div><div class="label">Requests (total)</div></div>
+    <div class="card"><div class="value">#(caddyRequests)</div><div class="label">Via Caddy</div></div>
+    <div class="card"><div class="value">#(directRequests)</div><div class="label">Direct</div></div>
+    <div class="card"><div class="value">#(errorRequests)</div><div class="label">Errors (4xx/5xx)</div></div>
+</div>
+
+<h2>Active Pods / Instances <span style="font-weight:400;font-size:0.8rem;color:#86868b">(Redis heartbeats, refresh 5s)</span></h2>
+#if(pods.count == 0):
+<p class="empty">No pods reporting yet.</p>
+#else:
+<table>
+    <tr><th>Pod</th><th>Role</th><th>Host</th><th>Started</th><th>Last Heartbeat</th><th>Requests Served</th></tr>
+    #for(pod in pods):
+    <tr>
+        <td><code>#(pod.id)</code></td>
+        <td>#(pod.role)</td>
+        <td>#(pod.host)</td>
+        <td>#(pod.startedAt)</td>
+        <td>#(pod.lastSeen)</td>
+        <td>#(pod.requestCount)</td>
+    </tr>
+    #endfor
+</table>
+#endif
+
+<h2>Network Log — Live Requests <span id="wsStatus" style="font-weight:400;font-size:0.75rem;color:#86868b">connecting…</span></h2>
+
+<div style="display:flex;gap:0.6rem;margin-bottom:0.6rem;max-width:32rem">
+    <input type="text" id="pathFilter" placeholder="Filter by path (e.g. /api)" style="flex:1;padding:0.35rem 0.6rem;border:1px solid #c7c7cc;border-radius:6px">
+    <select id="statusFilter" style="padding:0.35rem;border:1px solid #c7c7cc;border-radius:6px">
+        <option value="all">All statuses</option>
+        <option value="2xx">2xx</option>
+        <option value="3xx">3xx</option>
+        <option value="4xx">4xx</option>
+        <option value="5xx">5xx</option>
+    </select>
+    <button type="button" onclick="reloadLogs()" style="margin:0">Apply</button>
+</div>
+
+<div style="max-height:22rem;overflow-y:auto">
+<table>
+    <thead>
+    <tr><th>Time</th><th>Source</th><th>Method</th><th>Path</th><th>Status</th><th>Duration</th><th>Client IP</th><th>Pod</th></tr>
+    </thead>
+    <tbody id="netlogBody"></tbody>
+</table>
+</div>
+<p class="empty" id="netlogEmpty">No requests logged yet.</p>
+
+<script>
+(function () {
+    const body = document.getElementById("netlogBody");
+    const empty = document.getElementById("netlogEmpty");
+    const wsStatus = document.getElementById("wsStatus");
+    const statusEl = document.getElementById("statusFilter");
+    const pathEl = document.getElementById("pathFilter");
+    const maxRows = 100;
+    let statusFilter = "all";
+
+    function passesFilters(l) {
+        if (statusFilter !== "all") {
+            const cls = Math.floor(l.status / 100) + "xx";
+            if (cls !== statusFilter) return false;
+        }
+        const q = pathEl.value.trim().toLowerCase();
+        if (q && !l.path.toLowerCase().includes(q)) return false;
+        return true;
+    }
+
+    function rowFor(l) {
+        const tr = document.createElement("tr");
+        const d = new Date(l.t);
+        const t = isNaN(d) ? l.t : d.toLocaleTimeString([], { hour12: false });
+        const src = l.source === "caddy"
+            ? '<strong style="color:#007aff">caddy</strong>'
+            : '<span style="color:#86868b">direct</span>';
+        const st = l.status >= 400
+            ? '<strong style="color:#ff3b30">' + l.status + "</strong>"
+            : l.status;
+        tr.innerHTML = "<td>" + t + "</td><td>" + src + "</td><td>" + l.method
+            + '</td><td><code>' + l.path + "</code></td><td>" + st
+            + "</td><td>" + l.durationMs + " ms</td><td>" + l.ip
+            + '</td><td style="font-size:0.72rem"><code>' + l.pod + "</code></td>";
+        return tr;
+    }
+
+    function addLog(l) {
+        if (!passesFilters(l)) return;
+        empty.hidden = true;
+        body.prepend(rowFor(l));
+        while (body.children.length > maxRows) body.removeChild(body.lastChild);
+    }
+
+    window.reloadLogs = async function () {
+        statusFilter = statusEl.value;
+        body.innerHTML = "";
+        const params = new URLSearchParams({ path: pathEl.value.trim(), status: statusFilter });
+        const rows = await fetch("/admin/api/netlogs?" + params).then(r => r.json()).catch(() => []);
+        if (rows.length === 0) { empty.hidden = false; return; }
+        empty.hidden = true;
+        for (const l of rows) body.appendChild(rowFor(l));
+    };
+
+    pathEl.addEventListener("input", () => {
+        body.querySelectorAll("tr").forEach(tr => { tr.hidden = !tr.textContent.toLowerCase().includes(pathEl.value.trim().toLowerCase()) || tr.hidden; });
+    });
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(proto + "//" + location.host + "/admin/ws/logs");
+    ws.onopen = () => { wsStatus.textContent = "● live"; wsStatus.style.color = "#34c759"; };
+    ws.onclose = () => { wsStatus.textContent = "○ disconnected"; wsStatus.style.color = "#ff3b30"; };
+    ws.onmessage = (e) => {
+        if (e.data === '{"event":"connected"}') return;
+        try { addLog(JSON.parse(e.data)); } catch {}
+    };
+
+    reloadLogs();
+})();
+</script>
+
+<div class="cards" style="margin-top:1.5rem">
+    <div class="card"><div class="value">#(userCount)</div><div class="label">Users</div></div>
+    <div class="card"><div class="value">#(roomCount)</div><div class="label">Rooms</div></div>
+    <div class="card"><div class="value">#(mediaCount)</div><div class="label">Media Logs</div></div>
+    <div class="card"><div class="value">#(totalDuration)</div><div class="label">Total Duration (s)</div></div>
+</div>
+
+<h2>Recent Media</h2>
+#if(media.count == 0):
+<p class="empty">No media yet. Upload one from the <a href="/admin/upload-test">Upload Test</a> page.</p>
+#else:
+<div class="grid">
+    #for(m in media):
+    <div class="media-card">
+        #if(m.kind == "video"):
+        <video src="#(m.previewURL)" controls preload="metadata"></video>
+        #else:
+        #if(m.kind == "image"):
+        <img src="#(m.previewURL)" alt="#(m.s3Key)">
+        #else:
+        <div class="no-preview">No preview</div>
+        #endif
+        #endif
+        <div class="meta">
+            <strong>#(m.user)</strong> in <strong>#(m.room)</strong><br>
+            <code>#(m.s3Key)</code>
+        </div>
+    </div>
+    #endfor
+</div>
+<p><a href="/admin/media">View all media →</a></p>
+#endif
+
+<h2>Recent Users</h2>
+#if(users.count == 0):
+<p class="empty">No users yet.</p>
+#else:
+<table>
+    <tr><th>Display Name</th><th>Email</th><th>Created</th></tr>
+    #for(user in users):
+    <tr><td>#(user.displayName)</td><td>#(user.email)</td><td>#(user.createdAt)</td></tr>
+    #endfor
+</table>
+<p><a href="/admin/users">View all users →</a></p>
+#endif
+
+<h2>Recent Rooms</h2>
+#if(rooms.count == 0):
+<p class="empty">No rooms yet.</p>
+#else:
+<table>
+    <tr><th>Name</th><th>Type</th><th>Invite Code</th><th>Members</th><th>Created</th></tr>
+    #for(room in rooms):
+    <tr><td>#(room.name)</td><td>#(room.roomType)</td><td><code>#(room.inviteCode)</code></td><td>#(room.memberCount)/#(room.maxMembers)</td><td>#(room.createdAt)</td></tr>
+    #endfor
+</table>
+<p><a href="/admin/rooms">View all rooms →</a></p>
+#endif
+#endexport
+#endextend

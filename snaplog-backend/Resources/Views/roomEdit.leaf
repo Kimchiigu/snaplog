@@ -1,0 +1,25 @@
+#extend("base"):
+#export("title"):Edit Room#endexport
+#export("body"):
+<h2>Edit Room</h2>
+<form class="panel" method="POST" action="/admin/rooms/#(id)">
+    <label>Name <input type="text" name="name" value="#(name)"></label>
+    <label>Room Type
+        <select name="roomType">
+            <option value="log"#if(roomType == "log"): selected#endif>log</option>
+            <option value="stack"#if(roomType == "stack"): selected#endif>stack</option>
+        </select>
+    </label>
+    <label>Max Members
+        <select name="maxMembers">
+            #for(n in [2, 3, 4, 5, 20]):
+            <option value="#(n)"#if(n == maxMembers): selected#endif>#(n)</option>
+            #endfor
+        </select>
+    </label>
+    <label>Invite Code <input type="text" name="inviteCode" maxlength="6" value="#(inviteCode)"></label>
+    <button type="submit">Save Changes</button>
+    <a href="/admin/rooms"><button class="ghost" type="button">Cancel</button></a>
+</form>
+#endexport
+#endextend

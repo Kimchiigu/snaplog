@@ -1,0 +1,46 @@
+#extend("base"):
+#export("title"):Rooms#endexport
+#export("body"):
+#if(flash != ""):
+<div class="flash">#(flash)</div>
+#endif
+
+<h2>Create Room</h2>
+<form class="panel" method="POST" action="/admin/rooms">
+    <label>Name <input type="text" name="name" placeholder="Beach Trip"></label>
+    <label>Room Type
+        <select name="roomType"><option value="log">log</option><option value="stack">stack</option></select>
+    </label>
+    <label>Max Members
+        <select name="maxMembers"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>20</option></select>
+    </label>
+    <label>Invite Code (leave blank to auto-generate) <input type="text" name="inviteCode" maxlength="6" placeholder="ABC123"></label>
+    <button type="submit">Create</button>
+</form>
+
+<h2>Rooms</h2>
+#if(rooms.count == 0):
+<p class="empty">No rooms yet.</p>
+#else:
+<table>
+    <tr><th>Name</th><th>Type</th><th>Invite Code</th><th>Members</th><th>Max</th><th>Created</th><th>Actions</th></tr>
+    #for(room in rooms):
+    <tr>
+        <td>#(room.name)</td>
+        <td>#(room.roomType)</td>
+        <td><code>#(room.inviteCode)</code></td>
+        <td>#(room.memberCount)</td>
+        <td>#(room.maxMembers)</td>
+        <td>#(room.createdAt)</td>
+        <td class="row-actions">
+            <a href="/admin/rooms/#(room.id)/edit"><button class="ghost" type="button">Edit</button></a>
+            <form method="POST" action="/admin/rooms/#(room.id)/delete" onsubmit="return confirm('Delete room #(room.name)? This removes its members and media logs too.')">
+                <button class="danger" type="submit">Delete</button>
+            </form>
+        </td>
+    </tr>
+    #endfor
+</table>
+#endif
+#endexport
+#endextend

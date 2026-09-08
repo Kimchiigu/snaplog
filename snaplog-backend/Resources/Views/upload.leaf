@@ -1,0 +1,33 @@
+#extend("base"):
+#export("title"):Upload Test#endexport
+#export("body"):
+#if(flash != ""):
+<div class="flash">#(flash)</div>
+#endif
+
+<h2>Upload Test</h2>
+<p>The file is uploaded server-side to Cloudflare R2 under <code>uploads/</code> and recorded as a media log you can preview on the <a href="/admin/media">Media</a> page. Images and videos are both supported.</p>
+
+<form class="panel" method="POST" action="/admin/upload-test" enctype="multipart/form-data">
+    <label>File (mp4, mov, jpg, png, webp, gif, heic)
+        <input type="file" name="file" accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp,image/gif,image/heic" required>
+    </label>
+    <label>Owner
+        <select name="userId" required>
+            #for(u in users):
+            <option value="#(u.id)">#(u.displayName)</option>
+            #endfor
+        </select>
+    </label>
+    <label>Room
+        <select name="roomId" required>
+            #for(r in rooms):
+            <option value="#(r.id)">#(r.label)</option>
+            #endfor
+        </select>
+    </label>
+    <label>Duration (seconds, 0 for images) <input type="number" name="duration" min="0" max="60" step="0.1" value="0"></label>
+    <button type="submit">Upload</button>
+</form>
+#endexport
+#endextend

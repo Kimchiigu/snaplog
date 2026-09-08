@@ -1,0 +1,83 @@
+# SnapLog backend — full stack via Docker Compose.
+#
+#   Start everything:   docker compose up -d --build
+#   Run migrations:     docker compose run --rm migrate
+#   Follow logs:        docker compose logs -f app worker
+#   Stop everything:    docker compose down
+
+services:
+  # Local Redis Engine (queues, ZSET timeline caches, Pub/Sub)
+  redis:
+    image: redis:7-alpine
+    container_name: snaplog-local-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass local_redis_pass
+    volumes:
+      - redis_local_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "local_redis_pass", "--no-auth-warning", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # Caddy reverse proxy — the single public entry point (http://localhost).
+  # Terminates TLS in production, proxies to app:8080 (WebSockets included).
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+  # Vapor API server + Leaf admin dashboard
+  app:
+    build: .
+    image: snaplog-backend:latest
+    env_file: .env
+    environment:
+      # Inside the compose network Redis is reachable by service name.
+      REDIS_HOST: redis
+    ports:
+      - "8080:8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["serve", "--hostname", "0.0.0.0", "--port", "8080"]
+
+  # Background worker (FFmpeg video stitching)
+  worker:
+    build: .
+    image: snaplog-backend:latest
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+      POD_ROLE: worker
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["queues"]
+
+  # One-shot: run Fluent migrations (docker compose run --rm migrate)
+  migrate:
+    build: .
+    image: snaplog-backend:latest
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["migrate", "--yes"]
+    deploy:
+      replicas: 0
+
+volumes:
+  redis_local_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,31 @@
+#extend("base"):
+#export("title"):Users#endexport
+#export("body"):
+#if(flash != ""):
+<div class="flash">#(flash)</div>
+#endif
+
+<h2>Users</h2>
+#if(users.count == 0):
+<p class="empty">No users yet.</p>
+#else:
+<table>
+    <tr><th>Display Name</th><th>Email</th><th>Apple User ID</th><th>Created</th><th>Actions</th></tr>
+    #for(user in users):
+    <tr>
+        <td>#(user.displayName)</td>
+        <td>#(user.email)</td>
+        <td><code>#(user.appleUserId)</code></td>
+        <td>#(user.createdAt)</td>
+        <td class="row-actions">
+            <a href="/admin/users/#(user.id)/edit"><button class="ghost" type="button">Edit</button></a>
+            <form method="POST" action="/admin/users/#(user.id)/delete" onsubmit="return confirm('Delete user #(user.displayName)? This removes their media logs too.')">
+                <button class="danger" type="submit">Delete</button>
+            </form>
+        </td>
+    </tr>
+    #endfor
+</table>
+#endif
+#endexport
+#endextend

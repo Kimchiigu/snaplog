@@ -1,0 +1,37 @@
+#extend("base"):
+#export("title"):Media#endexport
+#export("body"):
+#if(flash != ""):
+<div class="flash">#(flash)</div>
+#endif
+
+<h2>Stored Media (#(media.count))</h2>
+#if(media.count == 0):
+<p class="empty">No media stored yet. Upload one from the <a href="/admin/upload-test">Upload Test</a> page.</p>
+#else:
+<div class="grid">
+    #for(m in media):
+    <div class="media-card">
+        #if(m.kind == "video"):
+        <video src="#(m.previewURL)" controls preload="metadata"></video>
+        #else:
+        #if(m.kind == "image"):
+        <img src="#(m.previewURL)" alt="#(m.s3Key)" loading="lazy">
+        #else:
+        <div class="no-preview">No preview</div>
+        #endif
+        #endif
+        <div class="meta">
+            <strong>#(m.user)</strong> in <strong>#(m.room)</strong><br>
+            <code>#(m.s3Key)</code><br>
+            #(m.duration)s · #(m.createdAt)
+            <form method="POST" action="/admin/media/#(m.id)/delete" onsubmit="return confirm('Delete this media log? (The R2 object stays.)')">
+                <button class="danger" type="submit">Delete log</button>
+            </form>
+        </div>
+    </div>
+    #endfor
+</div>
+#endif
+#endexport
+#endextend

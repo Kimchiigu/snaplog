@@ -1,0 +1,13 @@
+#extend("base"):
+#export("title"):Edit User#endexport
+#export("body"):
+<h2>Edit User</h2>
+<form class="panel" method="POST" action="/admin/users/#(id)">
+    <label>Display Name <input type="text" name="displayName" value="#(displayName)" required></label>
+    <label>Email <input type="email" name="email" value="#(email)" required></label>
+    <label>Avatar URL <input type="text" name="avatarUrl" value="#(avatarUrl)" placeholder="https://…"></label>
+    <button type="submit">Save Changes</button>
+    <a href="/admin/users"><button class="ghost" type="button">Cancel</button></a>
+</form>
+#endexport
+#endextend
