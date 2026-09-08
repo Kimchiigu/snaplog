@@ -13,16 +13,8 @@ Product requirements: [`PRD-IOS.md`](PRD-IOS.md) · [`PRD-BACKEND.md`](PRD-BACKE
 
 ## Architecture at a glance
 
-```
-iOS App ──HTTPS──▶ Caddy ──▶ Vapor API ──▶ PostgreSQL (Neon)
-  │                              │  │
-  │                              │  └──▶ Redis (timelines · pub/sub · queues · netlog)
-  │                              └──▶ Cloudflare R2 (presigned uploads)
-  └─── direct media upload ─────────────▶ Cloudflare R2
-                                         Queue Worker (FFmpeg stitch) ◀── Redis queues
-```
+<img src="snaplog-backend/docs/snaplog-backend.png">
 
-An interactive version lives at [`snaplog-backend/docs/snaplog-architecture.html`](snaplog-backend/docs/snaplog-architecture.html).
 
 **Key design decisions**
 
