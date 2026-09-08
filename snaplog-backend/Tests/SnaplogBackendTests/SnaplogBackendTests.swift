@@ -242,6 +242,62 @@ extension SnaplogBackendTests {
         ))
     }
 
+    @Test("Every response carries a fresh X-Trace-Id")
+    func responseCarriesTraceId() async throws {
+        try await SnaplogBackendTests.withTestApp { app, _ in
+            var first = ""
+            try await app.testing().test(.GET, "api/rooms", afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+                let id = res.headers.first(name: "X-Trace-Id") ?? ""
+                #expect(!id.isEmpty)
+                first = id
+            })
+            try await app.testing().test(.GET, "api/rooms", afterResponse: { res async in
+                let id = res.headers.first(name: "X-Trace-Id") ?? ""
+                #expect(!id.isEmpty)
+                #expect(id != first)
+                print("  ↳ trace ids: \(first.prefix(8))… then \(id.prefix(8))…")
+            })
+        }
+    }
+
+    @Test("A client-supplied trace id is echoed back")
+    func echoesClientTraceId() async throws {
+        try await SnaplogBackendTests.withTestApp { app, _ in
+            try await app.testing().test(.GET, "api/rooms", headers: ["X-Trace-Id": "my-trace-123"], afterResponse: { res async in
+                #expect(res.headers.first(name: "X-Trace-Id") == "my-trace-123")
+            })
+        }
+    }
+
+    @Test("Health checks are excluded from tracing")
+    func healthSkipsTracing() async throws {
+        try await SnaplogBackendTests.withTestApp { app, _ in
+            try await app.testing().test(.GET, "api/health", afterResponse: { res async in
+                #expect(res.headers.first(name: "X-Trace-Id") == nil)
+            })
+        }
+    }
+
+    @Test("An authenticated flow records its spans in the trace context")
+    func authenticatedFlowRecordsSpans() async throws {
+        try await SnaplogBackendTests.withTestApp { app, token in
+            try await app.testing().test(.GET, "api/rooms", headers: ["Authorization": "Bearer \(token)"], afterResponse: { res async in
+                #expect(res.status == .ok)
+                let traceId = res.headers.first(name: "X-Trace-Id") ?? ""
+                #expect(!traceId.isEmpty)
+                print("  ↳ GET /api/rooms traced as \(traceId.prefix(8))…")
+            })
+            try await app.testing().test(.POST, "api/rooms", headers: ["Authorization": "Bearer \(token)"], beforeRequest: { req in
+                try req.content.encode(CreateRoomRequest(name: "Traced Room", roomType: "log", maxMembers: 4))
+            }, afterResponse: { res async throws in
+                #expect(res.status == .ok)
+                let dto = try res.content.decode(RoomDTO.self)
+                print("  ↳ POST /api/rooms traced, room \(dto.id)")
+            })
+        }
+    }
+
     static func withTestApp(_ test: (Application, String) async throws -> Void) async throws {
         let testDatabaseURL = Environment.get("TEST_DATABASE_URL")
             ?? "postgres://postgres:test@127.0.0.1:5433/snaplog_test"

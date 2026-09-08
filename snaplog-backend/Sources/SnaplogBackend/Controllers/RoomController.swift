@@ -21,13 +21,16 @@ struct RoomController: RouteCollection {
     @Sendable
     func index(req: Request) async throws -> [RoomDTO] {
         let user = try req.authenticatedUser
-        let rooms = try await user.$rooms.query(on: req.db)
-            .all()
+        let rooms = try await req.trace.span("db.roomsForUser") {
+            try await user.$rooms.query(on: req.db).all()
+        }
         let roomIds = rooms.compactMap(\.id)
-        let pivots = try await RoomMember.query(on: req.db)
-            .filter(\.$room.$id ~~ roomIds)
-            .with(\.$user)
-            .all()
+        let pivots = try await req.trace.span("db.roomMembers") {
+            try await RoomMember.query(on: req.db)
+                .filter(\.$room.$id ~~ roomIds)
+                .with(\.$user)
+                .all()
+        }
         let membersByRoom = Dictionary(grouping: pivots, by: { $0.$room.id })
             .mapValues { $0.map { RoomMember.Summary(role: $0.role, joinedAt: $0.joinedAt, user: $0.user) } }
         return try await withThrowingTaskGroup(of: (Int, RoomDTO).self) { group in
@@ -83,9 +86,13 @@ struct RoomController: RouteCollection {
             maxMembers: body.maxMembers,
             inviteCode: inviteCode
         )
-        try await room.create(on: req.db)
+        try await req.trace.span("db.createRoom", detail: inviteCode) {
+            try await room.create(on: req.db)
+        }
         let membership = RoomMember(userId: user.id!, roomId: room.id!, role: "owner")
-        try await membership.create(on: req.db)
+        try await req.trace.span("db.createOwnerMembership") {
+            try await membership.create(on: req.db)
+        }
         return RoomDTO(room: room, members: [
             .init(role: "owner", joinedAt: membership.joinedAt, user: user)
         ], timeline: [])
@@ -97,10 +104,12 @@ struct RoomController: RouteCollection {
         guard body.inviteCode.count == 6 else {
             throw Abort(.badRequest, reason: "inviteCode must be 6 characters.")
         }
-        let room = try await Room.query(on: req.db)
-            .filter(\.$inviteCode == body.inviteCode)
-            .with(\.$members)
-            .first()
+        let room = try await req.trace.span("db.findRoomByInviteCode", detail: body.inviteCode) {
+            try await Room.query(on: req.db)
+                .filter(\.$inviteCode == body.inviteCode)
+                .with(\.$members)
+                .first()
+        }
         guard let room else {
             throw Abort(.notFound, reason: "No room found for this invite code.")
         }
@@ -111,7 +120,9 @@ struct RoomController: RouteCollection {
             throw Abort(.forbidden, reason: "Room is full.")
         }
         let membership = RoomMember(userId: user.id!, roomId: room.id!, role: "member")
-        try await membership.create(on: req.db)
+        try await req.trace.span("db.createMembership") {
+            try await membership.create(on: req.db)
+        }
         let pivots = try await RoomMember.query(on: req.db)
             .filter(\.$room.$id == room.id!)
             .with(\.$user)

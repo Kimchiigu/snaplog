@@ -41,6 +41,7 @@ func configure(_ app: Application) async throws {
     app.views.use(.leaf)
     app.sessions.use(.memory)
     app.routes.defaultMaxBodySize = "64mb"
+    app.middleware.use(TraceMiddleware(), at: .beginning)
     app.middleware.use(NetworkLogMiddleware(), at: .beginning)
     NetworkMonitor.startHeartbeat(on: app)
     app.migrations.add(CreateUser())

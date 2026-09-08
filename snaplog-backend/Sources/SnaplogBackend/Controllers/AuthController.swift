@@ -77,25 +77,31 @@ struct AuthController: RouteCollection {
         let body = try req.content.decode(AppleAuthRequest.self)
         let appleToken: AppleIdentityToken
         do {
-            appleToken = try await appleJWKSVerifier.verify(body.identityToken, as: AppleIdentityToken.self, on: req.client)
+            appleToken = try await req.trace.span("auth.verifyAppleToken") {
+                try await appleJWKSVerifier.verify(body.identityToken, as: AppleIdentityToken.self, on: req.client)
+            }
         } catch {
             req.logger.warning("Apple token verification failed: \(error)")
             throw Abort(.unauthorized, reason: "Invalid Apple identity token.")
         }
         let appleUserId = appleToken.sub.value
-        var user = try await User.query(on: req.db)
-            .filter(\.$appleUserId == appleUserId)
-            .first()
+        var user = try await req.trace.span("db.findUserByAppleId") {
+            try await User.query(on: req.db)
+                .filter(\.$appleUserId == appleUserId)
+                .first()
+        }
         if user == nil {
             let email = appleToken.email
                 ?? "\(appleUserId)@privaterelay.appleid.com"
-            let newUser = User(
-                appleUserId: appleUserId,
-                email: email,
-                displayName: email.components(separatedBy: "@").first ?? "Snapper"
-            )
-            try await newUser.create(on: req.db)
-            user = newUser
+            user = try await req.trace.span("db.createUser", detail: email) {
+                let newUser = User(
+                    appleUserId: appleUserId,
+                    email: email,
+                    displayName: email.components(separatedBy: "@").first ?? "Snapper"
+                )
+                try await newUser.create(on: req.db)
+                return newUser
+            }
         }
         guard let user else {
             throw Abort(.internalServerError, reason: "Failed to create user.")
@@ -105,17 +111,24 @@ struct AuthController: RouteCollection {
             appleUserId: appleUserId,
             exp: ExpirationClaim(value: Date().addingTimeInterval(60 * 60 * 24 * 30))
         )
+        let signStart = DispatchTime.now()
         let token = try req.jwt.sign(session)
+        req.trace.record("jwt.signSession", durationMs: Double(DispatchTime.now().uptimeNanoseconds - signStart.uptimeNanoseconds) / 1_000_000)
         return AuthResponse(token: token, user: user.public)
     }
 }
 struct JWTAuthMiddleware: AsyncMiddleware {
     func respond(to req: Request, chainingTo next: any AsyncResponder) async throws -> Response {
-        let payload = try req.jwt.verify(as: SessionToken.self)
+        let payload = try await req.trace.span("auth.verifySessionJWT") {
+            try req.jwt.verify(as: SessionToken.self)
+        }
         guard let userId = UUID(uuidString: payload.sub.value) else {
             throw Abort(.unauthorized, reason: "Malformed session token.")
         }
-        guard let user = try await User.find(userId, on: req.db) else {
+        let user = try await req.trace.span("db.findSessionUser", detail: userId.uuidString) {
+            try await User.find(userId, on: req.db)
+        }
+        guard let user else {
             throw Abort(.unauthorized, reason: "User no longer exists.")
         }
         req.auth.login(user)

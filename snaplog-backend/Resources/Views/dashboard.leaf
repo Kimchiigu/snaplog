@@ -32,6 +32,212 @@
 </table>
 #endif
 
+<h2>Request Traces — Data Flow <span id="traceWsStatus" style="font-weight:400;font-size:0.75rem;color:#86868b">connecting…</span></h2>
+
+<div style="display:flex;gap:0.6rem;margin-bottom:0.6rem;max-width:32rem">
+    <input type="text" id="tracePathFilter" placeholder="Filter by path (e.g. /api/logs)" style="flex:1;padding:0.35rem 0.6rem;border:1px solid #c7c7cc;border-radius:6px">
+    <button type="button" onclick="reloadTraces()" style="margin:0">Apply</button>
+</div>
+
+<div style="max-height:26rem;overflow-y:auto">
+<table>
+    <thead>
+    <tr><th></th><th>Time</th><th>Request</th><th>Status</th><th>Total</th><th>Spans</th><th>Trace ID</th></tr>
+    </thead>
+    <tbody id="traceBody"></tbody>
+</table>
+</div>
+<p class="empty" id="traceEmpty">No traces yet — make some API requests. Click a row to expand its timeline.</p>
+
+<script>
+(function () {
+    const body = document.getElementById("traceBody");
+    const empty = document.getElementById("traceEmpty");
+    const wsStatus = document.getElementById("traceWsStatus");
+    const pathEl = document.getElementById("tracePathFilter");
+    const maxRows = 50;
+    const tracesById = new Map();
+
+    function passesFilter(t) {
+        const q = pathEl.value.trim().toLowerCase();
+        return !q || t.path.toLowerCase().includes(q);
+    }
+
+    const BAR_COLORS = ["#007aff", "#34c759", "#ff9500", "#af52da", "#5ac8fa", "#ff2d55", "#5856d6"];
+
+    function spanLane(span, index, totalMs) {
+        const lane = document.createElement("div");
+        lane.style.cssText = "display:flex;align-items:center;gap:0.5rem;margin:2px 0";
+        const label = document.createElement("div");
+        label.style.cssText = "flex:0 0 11rem;font-size:0.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#3a3a3c";
+        label.textContent = span.name;
+        label.title = span.detail ? span.name + " (" + span.detail + ")" : span.name;
+        const track = document.createElement("div");
+        track.style.cssText = "flex:1;position:relative;height:14px;background:#f2f2f7;border-radius:3px";
+        const bar = document.createElement("div");
+        const leftPct = totalMs > 0 ? Math.min(100, (span.offsetMs / totalMs) * 100) : 0;
+        const widthPct = totalMs > 0 ? Math.max(0.8, (span.durationMs / totalMs) * 100) : 100 - leftPct;
+        bar.style.cssText = "position:absolute;top:2px;height:10px;border-radius:2px;"
+            + "left:" + leftPct.toFixed(2) + "%;width:" + widthPct.toFixed(2) + "%;"
+            + "background:" + BAR_COLORS[index % BAR_COLORS.length];
+        bar.title = span.name + " · " + span.durationMs + " ms (+" + span.offsetMs + " ms into request)";
+        track.appendChild(bar);
+        const dur = document.createElement("div");
+        dur.style.cssText = "flex:0 0 4.5rem;font-size:0.68rem;text-align:right;color:#8e8e93";
+        dur.textContent = span.durationMs + " ms";
+        lane.append(label, track, dur);
+        return lane;
+    }
+
+    function workerLane(span) {
+        const lane = spanLane(span, 0, span.durationMs);
+        lane.firstChild.style.color = "#7c3aed";
+        lane.firstChild.textContent = "⇢ " + span.name;
+        return lane;
+    }
+
+    function detailRowFor(t, mainRow) {
+        const tr = document.createElement("tr");
+        tr.className = "trace-detail";
+        tr.dataset.traceId = t.id;
+        const td = document.createElement("td");
+        td.colSpan = 7;
+        td.style.cssText = "background:#fafafa;border-top:1px dashed #e5e5ea;padding:0.5rem 0.75rem";
+        const reqSpans = t.spans.filter(sp => !sp.worker);
+        const workerSpans = t.spans.filter(sp => sp.worker);
+        if (reqSpans.length > 0) {
+            const title = document.createElement("div");
+            title.style.cssText = "font-size:0.7rem;font-weight:600;color:#8e8e93;margin-bottom:2px";
+            title.textContent = "REQUEST TIMELINE — total " + t.totalMs + " ms";
+            td.appendChild(title);
+            for (const [i, sp] of reqSpans.entries()) td.appendChild(spanLane(sp, i, t.totalMs));
+        }
+        if (workerSpans.length > 0) {
+            const wtitle = document.createElement("div");
+            wtitle.style.cssText = "font-size:0.7rem;font-weight:600;color:#7c3aed;margin:6px 0 2px";
+            wtitle.textContent = "WORKER CONTINUATION (async, after the response)";
+            td.appendChild(wtitle);
+            for (const sp of workerSpans) td.appendChild(workerLane(sp));
+        }
+        if (t.spans.length === 0) {
+            const none = document.createElement("div");
+            none.style.cssText = "font-size:0.7rem;color:#8e8e93";
+            none.textContent = "No spans recorded for this request.";
+            td.appendChild(none);
+        }
+        tr.appendChild(td);
+        return tr;
+    }
+
+    function rowFor(t) {
+        const tr = document.createElement("tr");
+        tr.dataset.traceId = t.id;
+        tr.style.cursor = "pointer";
+        const st = t.status >= 400
+            ? '<strong style="color:#ff3b30">' + t.status + "</strong>"
+            : t.status;
+        const reqCount = t.spans.filter(sp => !sp.worker).length;
+        const wCount = t.spans.length - reqCount;
+        tr.innerHTML = "<td style='color:#c7c7cc;font-size:0.8rem'>▸</td>"
+            + "<td>" + t.startedAt + "</td>"
+            + "<td><strong>" + t.method + "</strong> <code>" + t.path + "</code></td>"
+            + "<td>" + st + "</td><td>" + t.totalMs + " ms</td>"
+            + "<td>" + reqCount + (wCount ? " <span style=\"color:#7c3aed\">+ " + wCount + " worker</span>" : "") + "</td>"
+            + '<td style="font-size:0.68rem"><code>' + t.id.slice(0, 8) + "</code></td>";
+        tr.addEventListener("click", () => toggleDetail(t, tr));
+        return tr;
+    }
+
+    function toggleDetail(t, mainRow) {
+        const existing = mainRow.nextSibling && mainRow.nextSibling.classList && mainRow.nextSibling.classList.contains("trace-detail")
+            ? mainRow.nextSibling : null;
+        if (existing) {
+            existing.remove();
+            mainRow.firstChild.textContent = "▸";
+            return;
+        }
+        mainRow.parentNode.insertBefore(detailRowFor(t), mainRow.nextSibling);
+        mainRow.firstChild.textContent = "▾";
+    }
+
+    function addTrace(t) {
+        t.spans = t.spans || [];
+        if (!passesFilter(t)) { tracesById.set(t.id, t); return; }
+        const prev = tracesById.get(t.id);
+        if (prev) t.spans = prev.spans.filter(sp => sp.worker).concat(t.spans);
+        tracesById.set(t.id, t);
+        empty.hidden = true;
+        const existingMain = body.querySelector('tr[data-trace-id="' + t.id + '"]:not(.trace-detail)');
+        if (existingMain) existingMain.remove();
+        const existingDetail = body.querySelector('tr.trace-detail[data-trace-id="' + t.id + '"]');
+        if (existingDetail) existingDetail.remove();
+        const main = rowFor(t);
+        if (t.spans.some(sp => sp.worker)) {
+            body.prepend(main);
+            body.insertBefore(detailRowFor(t), main.nextSibling);
+            main.firstChild.textContent = "▾";
+        } else {
+            body.prepend(main);
+        }
+        while (body.querySelectorAll("tr:not(.trace-detail)").length > maxRows) {
+            const last = Array.from(body.querySelectorAll("tr:not(.trace-detail)")).pop();
+            const detail = last.nextSibling && last.nextSibling.classList && last.nextSibling.classList.contains("trace-detail") ? last.nextSibling : null;
+            tracesById.delete(last.dataset.traceId);
+            last.remove();
+            if (detail) detail.remove();
+        }
+    }
+
+    function addWorkerSpan(ev) {
+        const t = tracesById.get(ev.traceId);
+        if (!t) return;
+        ev.span.worker = true;
+        t.spans.push(ev.span);
+        const main = body.querySelector('tr[data-trace-id="' + ev.traceId + '"]:not(.trace-detail)');
+        if (!main) return;
+        const countCell = main.children[5];
+        const reqCount = t.spans.filter(sp => !sp.worker).length;
+        countCell.innerHTML = reqCount + ' <span style="color:#7c3aed">+ ' + (t.spans.length - reqCount) + " worker</span>";
+        const detail = main.nextSibling && main.nextSibling.classList && main.nextSibling.classList.contains("trace-detail") ? main.nextSibling : null;
+        if (detail) {
+            const wtitle = detail.querySelector("td").querySelector("div[style*='7c3aed']");
+            if (!wtitle) {
+                const title = document.createElement("div");
+                title.style.cssText = "font-size:0.7rem;font-weight:600;color:#7c3aed;margin:6px 0 2px";
+                title.textContent = "WORKER CONTINUATION (async, after the response)";
+                detail.querySelector("td").appendChild(title);
+            }
+            detail.querySelector("td").appendChild(workerLane(ev.span));
+        }
+    }
+
+    window.reloadTraces = async function () {
+        body.innerHTML = "";
+        tracesById.clear();
+        const params = new URLSearchParams({ path: pathEl.value.trim() });
+        const rows = await fetch("/admin/api/traces?" + params).then(r => r.json()).catch(() => []);
+        if (rows.length === 0) { empty.hidden = false; return; }
+        empty.hidden = true;
+        for (const t of rows) addTrace(t);
+    };
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(proto + "//" + location.host + "/admin/ws/traces");
+    ws.onopen = () => { wsStatus.textContent = "● live"; wsStatus.style.color = "#34c759"; };
+    ws.onclose = () => { wsStatus.textContent = "○ disconnected"; wsStatus.style.color = "#ff3b30"; };
+    ws.onmessage = (e) => {
+        if (e.data === '{"event":"connected"}') return;
+        try {
+            const msg = JSON.parse(e.data);
+            if (msg.traceId && msg.span) addWorkerSpan(msg);
+            else if (msg.path) addTrace(msg);
+        } catch {}
+    };
+
+    reloadTraces();
+})();
+</script>
+
 <h2>Network Log — Live Requests <span id="wsStatus" style="font-weight:400;font-size:0.75rem;color:#86868b">connecting…</span></h2>
 
 <div style="display:flex;gap:0.6rem;margin-bottom:0.6rem;max-width:32rem">

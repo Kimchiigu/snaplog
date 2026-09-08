@@ -9,6 +9,7 @@ struct StitchVideoJobPayload: Codable {
     let roomId: UUID
     let s3Key: String
     let duration: Double
+    var traceId: String?
 }
 
 struct StitchVideoJob: AsyncJob {
@@ -20,12 +21,15 @@ struct StitchVideoJob: AsyncJob {
         let r2 = R2Service(app.r2)
         let roomId = payload.roomId
         logger.info("StitchVideoJob started for room \(roomId)")
+        let tracer = WorkerTracer(traceId: payload.traceId, app: app)
 
-        let clips = try await MediaLog.query(on: context.application.db)
-            .filter(\.$room.$id == roomId)
-            .sort(\.$createdAt, .descending)
-            .limit(4)
-            .all()
+        let clips = try await tracer.span("worker.db.fetchClips", detail: roomId.uuidString) {
+            try await MediaLog.query(on: context.application.db)
+                .filter(\.$room.$id == roomId)
+                .sort(\.$createdAt, .descending)
+                .limit(4)
+                .all()
+        }
 
         guard !clips.isEmpty else {
             logger.warning("No clips found for room \(roomId); skipping stitch.")
@@ -40,7 +44,9 @@ struct StitchVideoJob: AsyncJob {
         var localPaths: [String] = []
 
         for clip in clips {
-            let data = try await r2.download(key: clip.s3Key, using: app.client)
+            let data = try await tracer.span("worker.r2.downloadClip", detail: clip.s3Key) {
+                try await r2.download(key: clip.s3Key, using: app.client)
+            }
             let url = workDir.appendingPathComponent("\(UUID().uuidString)-\(clip.s3Key.split(separator: "/").last ?? "clip.mp4")")
             try data.write(to: url)
             localPaths.append(url.path)
@@ -50,7 +56,10 @@ struct StitchVideoJob: AsyncJob {
         let outputPath = workDir.appendingPathComponent("digest.mp4").path
 
         if localPaths.count == 1 {
-            try await Self.runFFmpeg(arguments: ["-y", "-i", localPaths[0], "-c:v", "libx264", "-preset", "veryfast", outputPath], logger: logger)
+            let single = localPaths[0]
+            try await tracer.span("worker.ffmpeg.stitch") {
+                try await Self.runFFmpeg(arguments: ["-y", "-i", single, "-c:v", "libx264", "-preset", "veryfast", outputPath], logger: logger)
+            }
         } else {
             while localPaths.count < 4 {
                 localPaths.append(localPaths[localPaths.count - 1])
@@ -60,11 +69,15 @@ struct StitchVideoJob: AsyncJob {
             let scales = (0..<4).map { "[\(String($0)):v]scale=480:480,setsar=1[v\($0)]" }.joined(separator: ";")
             let xstack = "\(scales);[v0][v1][v2][v3]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0[vout]"
             args += ["-filter_complex", xstack, "-map", "[vout]", "-c:v", "libx264", "-preset", "veryfast", outputPath]
-            try await Self.runFFmpeg(arguments: args, logger: logger)
+            try await tracer.span("worker.ffmpeg.stitch") {
+                try await Self.runFFmpeg(arguments: args, logger: logger)
+            }
         }
-        
+
         let digestData = try Data(contentsOf: URL(fileURLWithPath: outputPath))
-        try await r2.upload(key: digestKey, data: digestData, contentType: "video/mp4", using: app.client)
+        try await tracer.span("worker.r2.uploadDigest", detail: digestKey) {
+            try await r2.upload(key: digestKey, data: digestData, contentType: "video/mp4", using: app.client)
+        }
         let entry = TimelineCache.Entry(
             s3Key: digestKey,
             duration: payload.duration,
@@ -81,8 +94,37 @@ struct StitchVideoJob: AsyncJob {
             "s3Key": digestKey
         ]
         let eventJSON = String(data: try JSONEncoder().encode(event), encoding: .utf8)!
+        let publishStart = DispatchTime.now()
         _ = try await app.redis.publish(eventJSON, to: RedisChannelName(TimelineCache.roomEventsChannel)).get()
+        tracer.record("worker.redis.publishDigestReady", detail: digestKey, since: publishStart)
         logger.info("StitchVideoJob finished for room \(roomId): \(digestKey)")
+    }
+    struct WorkerTracer {
+        let traceId: String?
+        let app: Application
+
+        func span<T>(_ name: String, detail: String? = nil, _ body: () async throws -> T) async rethrows -> T {
+            guard let traceId else { return try await body() }
+            let begin = DispatchTime.now()
+            let value = try await body()
+            TraceService.publishSpan(traceId: traceId, TraceService.Span(
+                name: name,
+                offsetMs: 0,
+                durationMs: Double(DispatchTime.now().uptimeNanoseconds - begin.uptimeNanoseconds) / 1_000_000,
+                detail: detail
+            ), on: app)
+            return value
+        }
+
+        func record(_ name: String, detail: String? = nil, since begin: DispatchTime) {
+            guard let traceId else { return }
+            TraceService.publishSpan(traceId: traceId, TraceService.Span(
+                name: name,
+                offsetMs: 0,
+                durationMs: Double(DispatchTime.now().uptimeNanoseconds - begin.uptimeNanoseconds) / 1_000_000,
+                detail: detail
+            ), on: app)
+        }
     }
     private static func runFFmpeg(arguments: [String], logger: Logger) async throws {
         logger.debug("ffmpeg \(arguments.joined(separator: " "))")

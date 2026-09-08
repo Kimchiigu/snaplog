@@ -45,6 +45,7 @@ struct AdminController: RouteCollection {
         routes.get("admin", "media", use: mediaPage)
         routes.post("admin", "media", ":id", "delete", use: mediaDelete)
         routes.get("admin", "api", "netlogs", use: netlogsJSON)
+        routes.get("admin", "api", "traces", use: tracesJSON)
         routes.get("admin", "upload-test", use: uploadTestPage)
         routes.post("admin", "upload-test", use: uploadSubmit)
     }
@@ -450,7 +451,33 @@ struct AdminController: RouteCollection {
         let pod: String
     }
 
-    @Sendable
+    struct TraceRow: Content {
+        let id: String
+        let method: String
+        let path: String
+        let status: Int
+        let startedAt: String
+        let totalMs: Double
+        let pod: String
+        let spans: [TraceService.Span]
+    }
+
+    func tracesJSON(req: Request) async throws -> [TraceRow] {
+        let records = await TraceService.recent(on: req.redis, limit: 50)
+        return records.map {
+            TraceRow(
+                id: $0.id,
+                method: $0.method,
+                path: $0.path,
+                status: Int($0.status),
+                startedAt: Self.timeFormatter.string(from: $0.startedAt),
+                totalMs: $0.totalMs,
+                pod: $0.pod,
+                spans: $0.spans
+            )
+        }
+    }
+
     func netlogsJSON(req: Request) async throws -> [NetlogRow] {
         let pathFilter = req.query[String.self, at: "path"] ?? ""
         let statusFilter = req.query[String.self, at: "status"] ?? "all"

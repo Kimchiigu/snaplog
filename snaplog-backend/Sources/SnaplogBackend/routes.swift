@@ -25,6 +25,9 @@ func routes(_ app: Application) throws {
     app.webSocket("admin", "ws", "logs") { req, ws in
         await LogsWebSocketHandler.shared.connect(req: req, ws: ws)
     }
+    app.webSocket("admin", "ws", "traces") { req, ws in
+        await TracesWebSocketHandler.shared.connect(req: req, ws: ws)
+    }
     
     let admin = AdminController()
     let adminSessioned = app.grouped(app.sessions.middleware)
