@@ -7,21 +7,35 @@
 
 import SwiftUI
 
-/// Sheet for joining a room with an invite code via `POST /rooms/join`.
+/// Sheet for joining a room with a 6-character invite code via `POST /api/rooms/join`.
 struct JoinRoomSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: RoomListViewModel
 
-    @State private var joinCode = ""
+    @State private var inviteCode = ""
     @State private var isSubmitting = false
+
+    private var trimmedCode: String {
+        inviteCode.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Invite Code") {
-                    TextField("Room code", text: $joinCode)
+                Section {
+                    TextField("Invite code", text: $inviteCode)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
+                        .font(.title3.monospaced())
+                        .onChange(of: inviteCode) { _, newValue in
+                            if newValue.count > 6 {
+                                inviteCode = String(newValue.prefix(6))
+                            }
+                        }
+                } header: {
+                    Text("Invite Code")
+                } footer: {
+                    Text("Ask the room owner for their 6-character code.")
                 }
                 Section {
                     PrimaryButton(
@@ -32,12 +46,10 @@ struct JoinRoomSheet: View {
                         Task { await submit() }
                     }
                     .listRowBackground(Color.clear)
-                }
-                if let message = viewModel.errorMessage {
-                    Section {
+                    if let message = viewModel.errorMessage {
                         Text(message)
-                            .foregroundStyle(.red)
                             .font(.footnote)
+                            .foregroundStyle(.red)
                     }
                 }
             }
@@ -52,11 +64,10 @@ struct JoinRoomSheet: View {
     }
 
     private func submit() async {
-        let code = joinCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else { return }
+        guard trimmedCode.count == 6 else { return }
         isSubmitting = true
         defer { isSubmitting = false }
-        if await viewModel.joinRoom(code: code) {
+        if await viewModel.joinRoom(inviteCode: trimmedCode) {
             dismiss()
         }
     }

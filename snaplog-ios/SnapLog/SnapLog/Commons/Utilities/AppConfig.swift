@@ -14,20 +14,24 @@ enum AppConfig {
     private static let fallbackURL = URL(fileURLWithPath: "/dev/null")
 
     /// Debug builds talk to the local backend; release builds can be pointed elsewhere.
+    /// The Vapor API is grouped under `/api` (see `routes.swift`).
     static var apiBaseURL: URL {
         #if DEBUG
-        URL(string: "http://localhost:8080") ?? fallbackURL
+        URL(string: "https://congress-tavern-reshuffle.ngrok-free.dev/api") ?? fallbackURL
         #else
-        URL(string: "https://api.snaplog.app") ?? fallbackURL
+        URL(string: "https://api.snaplog.app/api") ?? fallbackURL
         #endif
     }
 
-    static var presenceWebSocketURL: URL {
+    /// The presence WebSocket lives at the app root and authenticates with a JWT query param.
+    static func presenceWebSocketURL(token: String) -> URL {
         #if DEBUG
-        URL(string: "ws://localhost:8080/presence") ?? fallbackURL
+        var components = URLComponents(string: "wss://congress-tavern-reshuffle.ngrok-free.dev/presence")
         #else
-        URL(string: "wss://api.snaplog.app/presence") ?? fallbackURL
+        var components = URLComponents(string: "wss://api.snaplog.app/presence")
         #endif
+        components?.queryItems = [URLQueryItem(name: "token", value: token)]
+        return components?.url ?? fallbackURL
     }
 
     /// Mixpanel project token, injected at build time in release.

@@ -5,20 +5,32 @@
 //  Created by Christopher Hardy Gunawan on 07/09/26.
 //
 
+import Foundation
 import Testing
 @testable import SnapLog
 
 @MainActor
 struct RoomListViewModelTests {
 
-    private func makeRoom(_ id: String, type: RoomType = .grid) -> Room {
-        Room(id: id, name: "Room \(id)", roomType: type, memberCount: 2, joinCode: nil)
+    private func makeRoom(_ id: String, type: RoomType = .log) -> Room {
+        Room(
+            id: UUID(uuidString: id) ?? UUID(),
+            name: "Room \(id)",
+            roomType: type,
+            maxMembers: 4,
+            inviteCode: "AB12CD",
+            createdAt: nil,
+            members: [],
+            timeline: []
+        )
     }
 
     @Test func loadRoomsPopulatesFeed() async {
         let api = MockAPIClient()
-        let rooms = [makeRoom("1"), makeRoom("2", type: .stack)]
-        api.stub("/rooms", result: .success(RoomListResponse(rooms: rooms)))
+        let rooms = [makeRoom("00000000-0000-0000-0000-000000000001"),
+                     makeRoom("00000000-0000-0000-0000-000000000002", type: .stack)]
+        // The backend returns a bare array, not an envelope.
+        api.stub("/rooms", result: .success(rooms))
         let viewModel = RoomListViewModel(apiClient: api)
 
         await viewModel.loadRooms()
@@ -38,13 +50,13 @@ struct RoomListViewModelTests {
         #expect(viewModel.errorMessage != nil)
     }
 
-    @Test func createRoomAppendsAndReturnsTrue() async {
+    @Test func createRoomSendsMaxMembersAndAppends() async {
         let api = MockAPIClient()
-        let room = makeRoom("new")
+        let room = makeRoom("00000000-0000-0000-0000-000000000003")
         api.stub("/rooms", result: .success(room))
         let viewModel = RoomListViewModel(apiClient: api)
 
-        let created = await viewModel.createRoom(named: "Trip", roomType: .grid)
+        let created = await viewModel.createRoom(named: "Trip", roomType: .log, maxMembers: 4)
 
         #expect(created)
         #expect(viewModel.rooms == [room])
@@ -53,11 +65,11 @@ struct RoomListViewModelTests {
 
     @Test func joinRoomAppendsAndReturnsTrue() async {
         let api = MockAPIClient()
-        let room = makeRoom("joined")
+        let room = makeRoom("00000000-0000-0000-0000-000000000004")
         api.stub("/rooms/join", result: .success(room))
         let viewModel = RoomListViewModel(apiClient: api)
 
-        let joined = await viewModel.joinRoom(code: "AB12")
+        let joined = await viewModel.joinRoom(inviteCode: "AB12CD")
 
         #expect(joined)
         #expect(viewModel.rooms == [room])
@@ -65,22 +77,33 @@ struct RoomListViewModelTests {
 
     @Test func joinRoomDoesNotDuplicateExistingRoom() async {
         let api = MockAPIClient()
-        let room = makeRoom("dup")
-        api.stub("/rooms", result: .success(RoomListResponse(rooms: [room])))
+        let room = makeRoom("00000000-0000-0000-0000-000000000005")
+        api.stub("/rooms", result: .success([room]))
         api.stub("/rooms/join", result: .success(room))
         let viewModel = RoomListViewModel(apiClient: api)
         await viewModel.loadRooms()
 
-        let joined = await viewModel.joinRoom(code: "AB12")
+        let joined = await viewModel.joinRoom(inviteCode: "AB12CD")
 
         #expect(joined)
         #expect(viewModel.rooms.count == 1)
     }
 
+    @Test func joinRoomMapsBackendErrorsToFriendlyMessages() async {
+        let api = MockAPIClient()
+        api.stubFailure("/rooms/join", APIError.httpStatus(409))
+        let viewModel = RoomListViewModel(apiClient: api)
+
+        let joined = await viewModel.joinRoom(inviteCode: "AB12CD")
+
+        #expect(!joined)
+        #expect(viewModel.errorMessage == "You're already a member of that room.")
+    }
+
     @Test func gridLayoutDependsOnRoomType() {
         let viewModel = RoomListViewModel(apiClient: MockAPIClient())
 
-        #expect(viewModel.usesGridLayout(for: makeRoom("g", type: .grid)))
-        #expect(!viewModel.usesGridLayout(for: makeRoom("s", type: .stack)))
+        #expect(viewModel.usesGridLayout(for: makeRoom("00000000-0000-0000-0000-000000000006", type: .log)))
+        #expect(!viewModel.usesGridLayout(for: makeRoom("00000000-0000-0000-0000-000000000007", type: .stack)))
     }
 }

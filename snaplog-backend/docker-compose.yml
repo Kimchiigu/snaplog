@@ -48,7 +48,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: ["serve", "--hostname", "0.0.0.0", "--port", "8080"]
+    # --env dev registers the /api/auth/dev route for simulator sign-in.
+    command: ["serve", "--env", "dev", "--hostname", "0.0.0.0", "--port", "8080"]
 
   # Background worker (FFmpeg video stitching)
   worker:

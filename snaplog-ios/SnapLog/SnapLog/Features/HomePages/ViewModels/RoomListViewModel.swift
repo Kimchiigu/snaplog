@@ -17,8 +17,8 @@ final class RoomListViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    /// Room IDs in which at least one member is currently recording.
-    private(set) var recordingRoomIDs: Set<String> = []
+    /// Room IDs that just got a new stitched digest, shown with a highlight dot.
+    private(set) var freshRoomIDs: Set<UUID> = []
 
     private let apiClient: APIClientProtocol
     private let analytics: AnalyticsService
@@ -43,8 +43,8 @@ final class RoomListViewModel {
         defer { isLoading = false }
 
         do {
-            let response: RoomListResponse = try await apiClient.request(path: "/rooms", method: .get)
-            rooms = response.rooms
+            // The backend returns a bare array of RoomDTO.
+            rooms = try await apiClient.request(path: "/rooms", method: .get)
         } catch {
             errorMessage = "Couldn't load your rooms. Pull to refresh."
         }
@@ -52,13 +52,13 @@ final class RoomListViewModel {
 
     // MARK: - Presence
 
-    func startObservingPresence() {
-        socket.connect()
+    func startObservingPresence(token: String) {
+        socket.connect(token: token)
         presenceTask?.cancel()
         presenceTask = Task { [weak self] in
             guard let events = self?.socket.events else { return }
             for await event in events {
-                await self?.handle(event)
+                self?.handle(event)
             }
         }
     }
@@ -71,10 +71,9 @@ final class RoomListViewModel {
 
     private func handle(_ event: PresenceEvent) {
         switch event {
-        case .memberStartedRecording(let roomID, _):
-            recordingRoomIDs.insert(roomID)
-        case .memberStoppedRecording(let roomID, _):
-            recordingRoomIDs.remove(roomID)
+        case .newDigestReady(let roomID):
+            guard let uuid = UUID(uuidString: roomID) else { return }
+            freshRoomIDs.insert(uuid)
         case .connected, .disconnected:
             break
         }
@@ -82,37 +81,55 @@ final class RoomListViewModel {
 
     // MARK: - Create / Join
 
-    func createRoom(named name: String, roomType: RoomType) async -> Bool {
+    func createRoom(named name: String, roomType: RoomType, maxMembers: Int) async -> Bool {
         do {
             let room: Room = try await apiClient.request(
-                path: "/rooms", method: .post, body: CreateRoomRequest(name: name, roomType: roomType)
+                path: "/rooms",
+                method: .post,
+                body: CreateRoomRequest(name: name, roomType: roomType, maxMembers: maxMembers)
             )
             rooms.append(room)
             analytics.track(event: "room_created", properties: ["room_type": roomType.rawValue])
             return true
         } catch {
-            errorMessage = "Couldn't create the room. Please try again."
+            errorMessage = Self.describe(error)
             return false
         }
     }
 
-    func joinRoom(code: String) async -> Bool {
+    func joinRoom(inviteCode: String) async -> Bool {
         do {
             let room: Room = try await apiClient.request(
-                path: "/rooms/join", method: .post, body: JoinRoomRequest(code: code)
+                path: "/rooms/join", method: .post, body: JoinRoomRequest(inviteCode: inviteCode)
             )
             guard !rooms.contains(where: { $0.id == room.id }) else { return true }
             rooms.append(room)
             analytics.track(event: "room_joined", properties: [:])
             return true
         } catch {
-            errorMessage = "Couldn't join that room. Check the code and try again."
+            errorMessage = Self.describe(error)
             return false
         }
     }
 
     /// Whether the room should render as a 2x2 grid.
     func usesGridLayout(for room: Room) -> Bool {
-        room.roomType == .grid
+        room.roomType != .stack
+    }
+
+    static func describe(_ error: Error) -> String {
+        guard let apiError = error as? APIError else {
+            return "Something went wrong. Please try again."
+        }
+        switch apiError {
+        case .httpStatus(404):
+            return "No room found for that invite code."
+        case .httpStatus(409):
+            return "You're already a member of that room."
+        case .httpStatus(403):
+            return "That room is full."
+        default:
+            return "Something went wrong. Please try again."
+        }
     }
 }

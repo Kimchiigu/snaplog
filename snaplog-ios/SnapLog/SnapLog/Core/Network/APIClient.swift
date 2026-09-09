@@ -50,6 +50,11 @@ final class APIClient: Sendable, APIClientProtocol {
         _ = try await send(path: path, method: method, bodyData: encode(body))
     }
 
+    /// Performs a request whose response body is empty (e.g. `202 Accepted` confirmations).
+    func requestVoid<Body: Encodable>(path: String, method: HTTPMethod, body: Body?) async throws {
+        _ = try await send(path: path, method: method, bodyData: encode(body))
+    }
+
     // MARK: - Internals
 
     private func encode<Body: Encodable>(_ body: Body?) throws -> Data? {
@@ -62,13 +67,17 @@ final class APIClient: Sendable, APIClientProtocol {
     }
 
     private func send(path: String, method: HTTPMethod, bodyData: Data?) async throws -> Data {
-        guard let url = URL(string: path, relativeTo: baseURL) else {
+        // String concatenation, not relative-URL resolution: RFC 3986 would
+        // discard the "/api" segment of the base when joining an absolute path.
+        guard let url = URL(string: baseURL.absoluteString + path) else {
             throw APIError.invalidURL
         }
         var request = URLRequest(url: url.absoluteURL)
         request.httpMethod = method.rawValue
         request.httpBody = bodyData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Skip ngrok's free-tier browser interstitial when tunneling.
+        request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         if let token = tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -101,6 +110,7 @@ protocol APIClientProtocol: Sendable {
     ) async throws -> Response
     func request<Response: Decodable>(path: String, method: HTTPMethod) async throws -> Response
     func request<Body: Encodable>(path: String, method: HTTPMethod, body: Body?) async throws
+    func requestVoid<Body: Encodable>(path: String, method: HTTPMethod, body: Body?) async throws
 }
 
 enum HTTPMethod: String {
@@ -125,17 +135,14 @@ private enum HTTPStatusCategory {
 }
 
 extension JSONDecoder {
+    /// Matches Vapor's defaults: camelCase keys and ISO-8601 date strings.
     static let api: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
         return decoder
     }()
 }
 
 extension JSONEncoder {
-    static let api: JSONEncoder = {
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        return encoder
-    }()
+    static let api: JSONEncoder = JSONEncoder()
 }

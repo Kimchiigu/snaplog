@@ -92,6 +92,9 @@ enum NetworkMonitor {
             }
             func shutdown(_ application: Application) {
                 task.cancel()
+                // Test apps never boot Redis; touching it here races the storage
+                // teardown and trips RediStack's "No redis found" fatal.
+                guard application.environment != .testing else { return }
                 let id = self.id
                 Task { _ = try? await application.redis.hdel([id], from: NetworkMonitor.podsKey).get() }
             }

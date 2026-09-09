@@ -14,6 +14,8 @@ final class User: Model, Content, Authenticatable, @unchecked Sendable {
     var displayName: String
     @OptionalField(key: "avatar_url")
     var avatarUrl: String?
+    @OptionalField(key: "password_hash")
+    var passwordHash: String?
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
     @Siblings(through: RoomMember.self, from: \.$user, to: \.$room)
@@ -26,12 +28,14 @@ final class User: Model, Content, Authenticatable, @unchecked Sendable {
         appleUserId: String,
         email: String,
         displayName: String,
-        avatarUrl: String? = nil
+        avatarUrl: String? = nil,
+        passwordHash: String? = nil
     ) {
         self.id = id
         self.appleUserId = appleUserId
         self.email = email
         self.displayName = displayName
         self.avatarUrl = avatarUrl
+        self.passwordHash = passwordHash
     }
 }

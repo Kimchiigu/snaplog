@@ -55,6 +55,10 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
         _ = try rawValue(path: path, method: method)
     }
 
+    func requestVoid<Body: Encodable>(path: String, method: HTTPMethod, body: Body?) async throws {
+        _ = try rawValue(path: path, method: method)
+    }
+
     private func value<Response>(path: String, method: HTTPMethod) throws -> Response {
         let any = try rawValue(path: path, method: method)
         guard let typed = any as? Response else {

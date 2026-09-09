@@ -8,7 +8,7 @@
 import Foundation
 import Observation
 
-/// The top-level navigation state of the application.
+/// The top-level navigation and session state of the application.
 @MainActor
 @Observable
 final class AppState {
@@ -23,6 +23,9 @@ final class AppState {
     /// The JWT used to authorize backend requests, if signed in.
     private(set) var authToken: String?
 
+    /// Profile of the signed-in user, if signed in.
+    private(set) var currentUser: UserDTO?
+
     private let keychainStore: KeychainStoring
 
     init(keychainStore: KeychainStoring = KeychainStore()) {
@@ -34,15 +37,17 @@ final class AppState {
         }
     }
 
-    func signIn(token: String) {
+    func signIn(token: String, user: UserDTO) {
         keychainStore.saveToken(token)
         authToken = token
+        currentUser = user
         flow = .authenticated
     }
 
     func signOut() {
         keychainStore.deleteToken()
         authToken = nil
+        currentUser = nil
         flow = .unauthenticated
     }
 }

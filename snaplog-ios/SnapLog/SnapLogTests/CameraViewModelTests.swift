@@ -12,6 +12,8 @@ import Testing
 @MainActor
 struct CameraViewModelTests {
 
+    private let roomID = UUID(uuidString: "00000000-0000-0000-0000-00000000000A") ?? UUID()
+
     // MARK: - Duration constraint (PRD 4.3: strictly 2.0–4.0 s)
 
     @Test func durationsOutsideWindowAreRejected() {
@@ -39,7 +41,7 @@ struct CameraViewModelTests {
             .appendingPathComponent("test-\(UUID().uuidString).mp4")
         FileManager.default.createFile(atPath: fileURL.path, contents: Data([0]))
 
-        await viewModel.dispatch(fileURL: fileURL, roomID: "r1")
+        await viewModel.dispatch(fileURL: fileURL, roomID: roomID, duration: 3.0)
 
         guard case .failed = viewModel.phase else {
             Issue.record("expected failed phase, got \(viewModel.phase)")
@@ -52,19 +54,17 @@ struct CameraViewModelTests {
         let api = MockAPIClient()
         api.stub(
             "/logs/upload-url",
-            result: .success(UploadURLResponse(
-                uploadURL: URL(fileURLWithPath: "/dev/null"),
-                logID: "log-1"
-            ))
+            result: .success(UploadURLResponse(uploadURL: "http://localhost:1/upload", s3Key: "raw/abc.mp4"))
         )
-        api.stub("/logs/confirm", result: .success(EmptyResponse()))
+        // requestVoid only needs a stub present; the body is an empty 202.
+        api.stub("/logs/confirm", result: .success(true))
         let viewModel = CameraViewModel(apiClient: api, uploader: MockUploader())
 
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("src-\(UUID().uuidString).mp4")
         FileManager.default.createFile(atPath: fileURL.path, contents: Data([0, 1, 2]))
 
-        await viewModel.dispatch(fileURL: fileURL, roomID: "r1")
+        await viewModel.dispatch(fileURL: fileURL, roomID: roomID, duration: 3.0)
 
         #expect(viewModel.phase == .done)
         try? FileManager.default.removeItem(at: fileURL)
@@ -74,7 +74,7 @@ struct CameraViewModelTests {
         let api = MockAPIClient()
         api.stub(
             "/logs/upload-url",
-            result: .success(UploadURLResponse(uploadURL: URL(fileURLWithPath: "/dev/null"), logID: "log-2"))
+            result: .success(UploadURLResponse(uploadURL: "http://localhost:1/upload", s3Key: "raw/def.mp4"))
         )
         let viewModel = CameraViewModel(apiClient: api, uploader: MockUploader(shouldFail: true))
 
@@ -82,7 +82,7 @@ struct CameraViewModelTests {
             .appendingPathComponent("keep-\(UUID().uuidString).mp4")
         FileManager.default.createFile(atPath: fileURL.path, contents: Data([0]))
 
-        await viewModel.dispatch(fileURL: fileURL, roomID: "r1")
+        await viewModel.dispatch(fileURL: fileURL, roomID: roomID, duration: 3.0)
 
         guard case .failed = viewModel.phase else {
             Issue.record("expected failed phase, got \(viewModel.phase)")
@@ -102,6 +102,3 @@ struct MockUploader: VideoUploading, @unchecked Sendable {
         if shouldFail { throw APIError.network(underlying: "upload failed") }
     }
 }
-
-/// Empty JSON object response.
-struct EmptyResponse: Codable, Sendable {}

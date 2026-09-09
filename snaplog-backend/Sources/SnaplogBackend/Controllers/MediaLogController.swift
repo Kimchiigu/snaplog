@@ -70,7 +70,8 @@ struct MediaLogController: RouteCollection {
         try await req.trace.span("queue.enqueueStitch") {
             try await req.queue.dispatch(
                 StitchVideoJob.self,
-                StitchVideoJobPayload(roomId: body.roomId, s3Key: body.s3Key, duration: body.duration, traceId: req.trace.id)
+                StitchVideoJobPayload(roomId: body.roomId, s3Key: body.s3Key, duration: body.duration, traceId: req.trace.id),
+                maxRetryCount: DlqService.maxAttempts
             )
         }
         return Response(status: .accepted)

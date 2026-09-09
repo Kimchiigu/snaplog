@@ -29,6 +29,17 @@ struct AppleIdentityToken: JWTPayload {
 struct AppleAuthRequest: Content {
     let identityToken: String
 }
+
+struct RegisterRequest: Content {
+    let email: String
+    let password: String
+    let displayName: String
+}
+
+struct LoginRequest: Content {
+    let email: String
+    let password: String
+}
 struct AuthResponse: Content {
     let token: String
     let user: User.Public
@@ -47,6 +58,56 @@ extension User {
 struct AuthController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         routes.post("auth", "apple", use: appleSignIn)
+        routes.post("auth", "register", use: register)
+        routes.post("auth", "login", use: login)
+    }
+
+    @Sendable
+    func register(req: Request) async throws -> AuthResponse {
+        let body = try req.content.decode(RegisterRequest.self)
+        let email = body.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let name = body.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard email.contains("@"), email.contains("."),
+              body.password.count >= 8, !name.isEmpty else {
+            throw Abort(.badRequest, reason: "Provide a valid email, a display name, and a password of at least 8 characters.")
+        }
+        let existing = try await User.query(on: req.db)
+            .filter(\.$email == email)
+            .first()
+        guard existing == nil else {
+            throw Abort(.conflict, reason: "An account with that email already exists.")
+        }
+        let user = User(
+            appleUserId: "email:\(email)",
+            email: email,
+            displayName: name,
+            passwordHash: try Bcrypt.hash(body.password)
+        )
+        try await user.create(on: req.db)
+        return AuthResponse(token: try signSession(for: user, req: req), user: user.public)
+    }
+
+    @Sendable
+    func login(req: Request) async throws -> AuthResponse {
+        let body = try req.content.decode(LoginRequest.self)
+        let email = body.email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let user = try await User.query(on: req.db)
+            .filter(\.$email == email)
+            .first(),
+            let hash = user.passwordHash,
+            try Bcrypt.verify(body.password, created: hash) else {
+            throw Abort(.unauthorized, reason: "Invalid email or password.")
+        }
+        return AuthResponse(token: try signSession(for: user, req: req), user: user.public)
+    }
+
+    private func signSession(for user: User, req: Request) throws -> String {
+        let session = SessionToken(
+            sub: SubjectClaim(stringLiteral: user.id!.uuidString),
+            appleUserId: user.appleUserId,
+            exp: ExpirationClaim(value: Date().addingTimeInterval(60 * 60 * 24 * 30))
+        )
+        return try req.jwt.sign(session)
     }
     @Sendable
     func devLogin(req: Request) async throws -> AuthResponse {

@@ -7,18 +7,14 @@
 
 import Foundation
 
-/// Response envelope for `GET /rooms`.
-struct RoomListResponse: Decodable, Sendable {
-    let rooms: [Room]
-}
-
-/// Request body for `POST /rooms`.
+/// Request body for `POST /api/rooms`.
 struct CreateRoomRequest: Encodable, Sendable {
     let name: String
     let roomType: RoomType
+    let maxMembers: Int
 }
 
-/// Request body for `POST /rooms/join`.
+/// Request body for `POST /api/rooms/join`.
 struct JoinRoomRequest: Encodable, Sendable {
-    let code: String
+    let inviteCode: String
 }

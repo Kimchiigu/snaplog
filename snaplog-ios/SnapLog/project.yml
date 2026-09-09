@@ -30,6 +30,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLog uses the camera to record your short video logs."
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "SnapLog uses the microphone to record audio with your video logs."
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "SnapLog saves your recorded clips to your photo library."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_STRICT_CONCURRENCY: complete

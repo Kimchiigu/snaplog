@@ -12,6 +12,8 @@ final class MediaLog: Model, Content, @unchecked Sendable {
     var s3Key: String
     @Field(key: "duration")
     var duration: Double
+    @Field(key: "status")
+    var status: String
     @Timestamp(key: "created_at", on: .create)
     var createdAt: Date?
     init() {}
@@ -20,12 +22,14 @@ final class MediaLog: Model, Content, @unchecked Sendable {
         userId: UUID,
         roomId: UUID,
         s3Key: String,
-        duration: Double
+        duration: Double,
+        status: String = "processing"
     ) {
         self.id = id
         self.$user.id = userId
         self.$room.id = roomId
         self.s3Key = s3Key
         self.duration = duration
+        self.status = status
     }
 }

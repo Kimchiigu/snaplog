@@ -9,17 +9,45 @@ import SotoSignerV4
 import Vapor
 
 func configure(_ app: Application) async throws {
-    if let databaseURL = Environment.get("DATABASE_URL") {
-        try app.databases.use(.postgres(url: databaseURL), as: .psql)
+    if var databaseURL = Environment.get("DATABASE_URL") {
+        // Neon and other managed Postgres require TLS; local docker Postgres doesn't
+        // support it, so only force sslmode for remote hosts.
+        let isLocal: Bool
+        if let host = URL(string: databaseURL)?.host() {
+            isLocal = host == "localhost" || host == "127.0.0.1" || host == "::1"
+        } else {
+            isLocal = false
+        }
+        if !databaseURL.contains("sslmode=") && !isLocal {
+            databaseURL += databaseURL.contains("?") ? "&sslmode=require" : "?sslmode=require"
+        }
+        // Cap per-event-loop Postgres connections: with HPA running up to 10 app pods +
+        // workers against Neon, unbounded pools would exhaust the connection limit.
+        // For production prefer Neon's pooled (-pooler) connection string.
+        try app.databases.use(.postgres(
+            url: databaseURL,
+            maxConnectionsPerEventLoop: Environment.get("POSTGRES_MAX_CONNECTIONS").flatMap(Int.init(_:)) ?? 1
+        ), as: .psql)
     } else {
-        app.databases.use(DatabaseConfigurationFactory.postgres(configuration: .init(
-            hostname: Environment.get("DATABASE_HOST") ?? "localhost",
-            port: Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber,
-            username: Environment.get("DATABASE_USERNAME") ?? "vapor_username",
-            password: Environment.get("DATABASE_PASSWORD") ?? "vapor_password",
-            database: Environment.get("DATABASE_NAME") ?? "vapor_database",
-            tls: .prefer(try .init(configuration: .clientDefault))
-        )), as: .psql)
+        let hostname = Environment.get("DATABASE_HOST") ?? "localhost"
+        let port = Environment.get("DATABASE_PORT").flatMap(Int.init(_:)) ?? SQLPostgresConfiguration.ianaPortNumber
+        let username = Environment.get("DATABASE_USERNAME") ?? "vapor_username"
+        let password = Environment.get("DATABASE_PASSWORD") ?? "vapor_password"
+        let database = Environment.get("DATABASE_NAME") ?? "vapor_database"
+        let maxConnections = Environment.get("POSTGRES_MAX_CONNECTIONS").flatMap(Int.init(_:)) ?? 1
+        let tls: PostgresConnection.Configuration.TLS = .prefer(try .init(configuration: .clientDefault))
+        let sqlConfig = SQLPostgresConfiguration(
+            hostname: hostname,
+            port: port,
+            username: username,
+            password: password,
+            database: database,
+            tls: tls
+        )
+        app.databases.use(
+            .postgres(configuration: sqlConfig, maxConnectionsPerEventLoop: maxConnections),
+            as: .psql
+        )
     }
 
     let redisConfig: RedisConfiguration
@@ -45,10 +73,14 @@ func configure(_ app: Application) async throws {
     app.middleware.use(NetworkLogMiddleware(), at: .beginning)
     NetworkMonitor.startHeartbeat(on: app)
     app.migrations.add(CreateUser())
+    app.migrations.add(AddUserPassword())
     app.migrations.add(CreateRoom())
     app.migrations.add(CreateRoomMember())
     app.migrations.add(CreateMediaLog())
+    app.migrations.add(AlterMediaLogStatus())
+    app.migrations.add(CreateDeviceToken())
     app.queues.add(StitchVideoJob())
+    try PushNotificationService.configure(app)
     
     try routes(app)
 }

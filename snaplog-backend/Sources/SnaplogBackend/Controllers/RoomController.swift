@@ -13,10 +13,53 @@ enum TimelineCache {
     }
 }
 struct RoomController: RouteCollection {
+    struct PlaybackClipDTO: Content {
+        let s3Key: String
+        let url: String
+        let duration: Double
+        let createdAt: Date
+        let authorName: String
+    }
+
     func boot(routes: any RoutesBuilder) throws {
         routes.get("rooms", use: index)
         routes.post("rooms", use: create)
         routes.post("rooms", "join", use: join)
+        routes.get("rooms", ":roomID", "playback", use: playback)
+    }
+
+    /// Pre-signed GET URLs for every clip in a room, for client-side playback.
+    @Sendable
+    func playback(req: Request) async throws -> [PlaybackClipDTO] {
+        let user = try req.authenticatedUser
+        guard let roomId = req.parameters.get("roomID", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "Invalid room id.")
+        }
+        try await MediaLogController.assertMembership(userId: user.id!, roomId: roomId, on: req.db)
+        let logs = try await MediaLog.query(on: req.db)
+            .filter(\.$room.$id == roomId)
+            .with(\.$user)
+            .sort(\.$createdAt, .descending)
+            .all()
+        let r2 = R2Service(req.r2)
+        return try logs.compactMap { log in
+            guard !log.s3Key.isEmpty, let createdAt = log.createdAt else { return nil }
+            let key = log.s3Key
+            let url: String
+            do {
+                url = try r2.presignedGetURL(key: key)
+            } catch {
+                req.logger.warning("R2 presign GET failed for \(key): \(error)")
+                return nil
+            }
+            return PlaybackClipDTO(
+                s3Key: key,
+                url: url,
+                duration: log.duration,
+                createdAt: createdAt,
+                authorName: log.user.displayName
+            )
+        }
     }
     @Sendable
     func index(req: Request) async throws -> [RoomDTO] {

@@ -15,6 +15,32 @@ struct StitchVideoJobPayload: Codable {
 struct StitchVideoJob: AsyncJob {
     typealias Payload = StitchVideoJobPayload
 
+    /// FFmpeg jobs fail on corrupted MP4s, codec surprises, or worker OOM.
+    /// After `maxAttempts` the payload moves to the Redis DLQ, the admin portal
+    /// is notified over Pub/Sub, and the log is marked failed in Postgres.
+    func error(_ context: QueueContext, _ error: any Error, _ payload: StitchVideoJobPayload) async throws {
+        let app = context.application
+        guard app.environment != .testing else { return }
+        let attemptsKey = RedisKey("snaplog:stitch:attempts:\(payload.s3Key)")
+        let attempts: Int = (try? await app.redis.increment(attemptsKey).get()) ?? 1
+        _ = try? await app.redis.expire(attemptsKey, after: .seconds(60 * 60 * 24)).get()
+        context.logger.error("StitchVideoJob attempt \(attempts)/\(Int64(DlqService.maxAttempts)) failed for \(payload.s3Key): \(error)")
+        guard attempts >= DlqService.maxAttempts else { return }
+        _ = try? await app.redis.delete(attemptsKey).get()
+        await DlqService.record(DlqService.Entry(
+            job: "StitchVideoJob",
+            s3Key: payload.s3Key,
+            roomId: payload.roomId,
+            reason: String(describing: error),
+            failedAt: Date()
+        ), on: app)
+        await DlqService.markFailed(s3Key: payload.s3Key, on: app.db)
+    }
+
+    func nextRetryIn(attempt: Int) -> Int {
+        min(60, 5 * (attempt + 1) * (attempt + 1))
+    }
+
     func dequeue(_ context: QueueContext, _ payload: StitchVideoJobPayload) async throws {
         let app = context.application
         let logger = context.logger
@@ -78,6 +104,27 @@ struct StitchVideoJob: AsyncJob {
         try await tracer.span("worker.r2.uploadDigest", detail: digestKey) {
             try await r2.upload(key: digestKey, data: digestData, contentType: "video/mp4", using: app.client)
         }
+
+        let publicBase = Environment.get("R2_PUBLIC_BASE_URL") ?? ""
+        let verdict = try await tracer.span("worker.moderation.check", detail: digestKey) {
+            try await ModerationService.check(s3Key: digestKey, publicURL: publicBase.isEmpty ? digestKey : "\(publicBase)/\(digestKey)", on: app)
+        }
+        guard verdict.approved else {
+            logger.warning("Digest \(digestKey) rejected by moderation: \(verdict.reason ?? "unspecified")")
+            await DlqService.record(DlqService.Entry(
+                job: "StitchVideoJob",
+                s3Key: digestKey,
+                roomId: roomId,
+                reason: "moderation rejected: \(verdict.reason ?? "unspecified")",
+                failedAt: Date()
+            ), on: app)
+            for clip in clips where clip.s3Key == payload.s3Key {
+                clip.status = "rejected"
+                try? await clip.update(on: app.db)
+            }
+            return
+        }
+
         let entry = TimelineCache.Entry(
             s3Key: digestKey,
             duration: payload.duration,
@@ -97,6 +144,18 @@ struct StitchVideoJob: AsyncJob {
         let publishStart = DispatchTime.now()
         _ = try await app.redis.publish(eventJSON, to: RedisChannelName(TimelineCache.roomEventsChannel)).get()
         tracer.record("worker.redis.publishDigestReady", detail: digestKey, since: publishStart)
+        for clip in clips where clip.s3Key == payload.s3Key {
+            clip.status = "ready"
+            try? await clip.update(on: app.db)
+        }
+        try await tracer.span("worker.apns.notifyRoom") {
+            await PushNotificationService.notifyRoomDigestReady(
+                app: app,
+                roomId: roomId,
+                s3Key: digestKey,
+                excluding: clips.first?.$user.id
+            )
+        }
         logger.info("StitchVideoJob finished for room \(roomId): \(digestKey)")
     }
     struct WorkerTracer {

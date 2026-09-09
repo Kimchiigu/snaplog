@@ -7,14 +7,23 @@
 
 import Foundation
 
-/// Response from `POST /logs/upload-url`.
-struct UploadURLResponse: Decodable, Sendable {
-    let uploadURL: URL
-    let logID: String
+/// Request body for `POST /api/logs/upload-url`.
+struct UploadURLRequest: Encodable, Sendable {
+    let roomId: UUID
+    let fileExtension: String
 }
 
-/// Request body for `POST /logs/confirm`.
+/// Response from `POST /api/logs/upload-url`.
+struct UploadURLResponse: Decodable, Sendable {
+    let uploadURL: String
+    let s3Key: String
+
+    var destination: URL { URL(string: uploadURL) ?? URL(fileURLWithPath: "/dev/null") }
+}
+
+/// Request body for `POST /api/logs/confirm`.
 struct LogConfirmRequest: Encodable, Sendable {
-    let logID: String
-    let roomID: String
+    let s3Key: String
+    let duration: Double
+    let roomId: UUID
 }

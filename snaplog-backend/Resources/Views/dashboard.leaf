@@ -340,6 +340,90 @@
     <div class="card"><div class="value">#(totalDuration)</div><div class="label">Total Duration (s)</div></div>
 </div>
 
+<h2>Dead-Letter Queue <span id="dlqStatus" style="font-size:0.75rem;font-weight:normal"></span></h2>
+<div style="max-height:16rem;overflow-y:auto">
+<table>
+    <thead>
+    <tr><th>Failed At</th><th>Job</th><th>S3 Key</th><th>Room</th><th>Reason</th></tr>
+    </thead>
+    <tbody id="dlqBody"></tbody>
+</table>
+</div>
+<p class="empty" id="dlqEmpty">No dead-lettered jobs. Failed stitches land here after 3 retries.</p>
+
+<script>
+(function () {
+    const body = document.getElementById("dlqBody");
+    const empty = document.getElementById("dlqEmpty");
+    const status = document.getElementById("dlqStatus");
+
+    function rowFor(e) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = "<td>" + (e.failedAt || "?") + "</td><td><code>" + (e.job || "?")
+            + "</code></td><td><code>" + (e.s3Key || "?") + "</code></td><td>"
+            + (e.roomId ? "<code>" + String(e.roomId).slice(0, 8) + "…</code>" : "—")
+            + '</td><td style="color:#ff3b30">' + (e.reason || "?") + "</td>";
+        return tr;
+    }
+
+    function addEvent(e) {
+        empty.hidden = true;
+        body.prepend(rowFor(e));
+    }
+
+    async function load() {
+        const rows = await fetch("/admin/api/dlq").then(r => r.json()).catch(() => []);
+        if (rows.length === 0) { empty.hidden = false; return; }
+        empty.hidden = true;
+        for (const e of rows) body.appendChild(rowFor(e));
+    }
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(proto + "//" + location.host + "/admin/ws/dlq");
+    ws.onopen = () => { status.textContent = "● live"; status.style.color = "#34c759"; };
+    ws.onclose = () => { status.textContent = "○ disconnected"; status.style.color = "#ff3b30"; };
+    ws.onmessage = (e) => {
+        if (e.data === '{"event":"connected"}') return;
+        try { addEvent(JSON.parse(e.data)); } catch {}
+    };
+
+    load();
+})();
+</script>
+
+<h2>Orphan Uploads <span style="font-size:0.75rem;font-weight:normal;color:#86868b">R2 objects with no matching media log</span></h2>
+<div style="max-height:12rem;overflow-y:auto">
+<table>
+    <thead>
+    <tr><th>S3 Key</th><th>Seen At (webhook)</th></tr>
+    </thead>
+    <tbody id="orphanBody"></tbody>
+</table>
+</div>
+<p class="empty" id="orphanEmpty">No orphans. Uploads that landed in R2 but were never confirmed appear here.</p>
+
+<script>
+(function () {
+    const body = document.getElementById("orphanBody");
+    const empty = document.getElementById("orphanEmpty");
+
+    function rowFor(o) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = "<td><code>" + o.s3Key + "</code></td><td>" + (o.seenAt || "?") + "</td>";
+        return tr;
+    }
+
+    async function load() {
+        const rows = await fetch("/admin/api/orphan-uploads").then(r => r.json()).catch(() => []);
+        if (rows.length === 0) { empty.hidden = false; return; }
+        empty.hidden = true;
+        for (const o of rows) body.appendChild(rowFor(o));
+    }
+
+    load();
+})();
+</script>
+
 <h2>Recent Media</h2>
 #if(media.count == 0):
 <p class="empty">No media yet. Upload one from the <a href="/admin/upload-test">Upload Test</a> page.</p>

@@ -18,6 +18,10 @@ func routes(_ app: Application) throws {
     let authenticated = api.grouped(JWTAuthMiddleware())
     try authenticated.register(collection: RoomController())
     try authenticated.register(collection: MediaLogController())
+    try authenticated.register(collection: UserController())
+    let webhooks = WebhookController()
+    webhooks.bootWebhook(routes: app)
+    webhooks.bootDevices(routes: api)
 
     app.webSocket("presence") { req, ws in
         await PresenceWebSocketHandler.shared.connect(req: req, ws: ws)
@@ -27,6 +31,9 @@ func routes(_ app: Application) throws {
     }
     app.webSocket("admin", "ws", "traces") { req, ws in
         await TracesWebSocketHandler.shared.connect(req: req, ws: ws)
+    }
+    app.webSocket("admin", "ws", "dlq") { req, ws in
+        await DlqWebSocketHandler.shared.connect(req: req, ws: ws)
     }
     
     let admin = AdminController()

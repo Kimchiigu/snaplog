@@ -7,13 +7,14 @@
 
 import SwiftUI
 
-/// Sheet for creating a new room via `POST /rooms`.
+/// Sheet for creating a new room via `POST /api/rooms`.
 struct CreateRoomSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: RoomListViewModel
 
     @State private var roomName = ""
-    @State private var roomType: RoomType = .grid
+    @State private var roomType: RoomType = .log
+    @State private var maxMembers = 4
     @State private var isSubmitting = false
 
     var body: some View {
@@ -22,8 +23,16 @@ struct CreateRoomSheet: View {
                 Section("Room Details") {
                     TextField("Room name", text: $roomName)
                     Picker("Layout", selection: $roomType) {
-                        Text("Grid (2x2)").tag(RoomType.grid)
+                        Text("Log").tag(RoomType.log)
                         Text("Stack").tag(RoomType.stack)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section("Members") {
+                    Picker("Max Members", selection: $maxMembers) {
+                        ForEach(RoomType.allowedMaxMembers, id: \.self) { count in
+                            Text(count == 20 ? "20 (Class)" : "\(count)").tag(count)
+                        }
                     }
                     .pickerStyle(.segmented)
                 }
@@ -36,6 +45,11 @@ struct CreateRoomSheet: View {
                         Task { await submit() }
                     }
                     .listRowBackground(Color.clear)
+                    if let message = viewModel.errorMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
                 }
             }
             .navigationTitle("New Room")
@@ -53,7 +67,7 @@ struct CreateRoomSheet: View {
         guard !name.isEmpty else { return }
         isSubmitting = true
         defer { isSubmitting = false }
-        if await viewModel.createRoom(named: name, roomType: roomType) {
+        if await viewModel.createRoom(named: name, roomType: roomType, maxMembers: maxMembers) {
             dismiss()
         }
     }

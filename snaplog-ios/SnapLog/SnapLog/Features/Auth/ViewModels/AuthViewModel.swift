@@ -30,8 +30,8 @@ final class AuthViewModel {
         self.analytics = analytics
     }
 
-    /// Exchanges an Apple identity token for a SnapLog JWT via `POST /auth/apple`.
-    func signIn(appleIdentityToken: String, fullName: String?) async {
+    /// Exchanges an Apple identity token for a SnapLog JWT via `POST /api/auth/apple`.
+    func signIn(appleIdentityToken: String) async {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -40,13 +40,71 @@ final class AuthViewModel {
             let response: AuthResponse = try await apiClient.request(
                 path: "/auth/apple",
                 method: .post,
-                body: AppleAuthRequest(identityToken: appleIdentityToken, fullName: fullName)
+                body: AppleAuthRequest(identityToken: appleIdentityToken)
             )
-            analytics.track(event: "auth_signed_in", properties: ["user_id": response.userID])
-            appState.signIn(token: response.token)
+            finishSignIn(response)
         } catch {
             errorMessage = Self.describe(error)
         }
+    }
+
+    /// Development-only shortcut backed by `POST /api/auth/dev`.
+    func devSignIn(displayName: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let response: AuthResponse = try await apiClient.request(
+                path: "/auth/dev",
+                method: .post,
+                body: DevAuthRequest(displayName: displayName)
+            )
+            finishSignIn(response)
+        } catch {
+            errorMessage = Self.describe(error)
+        }
+    }
+
+    /// Creates an email/password account via `POST /api/auth/register`.
+    func register(email: String, password: String, displayName: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let response: AuthResponse = try await apiClient.request(
+                path: "/auth/register",
+                method: .post,
+                body: RegisterRequest(email: email, password: password, displayName: displayName)
+            )
+            finishSignIn(response)
+        } catch {
+            errorMessage = Self.describe(error)
+        }
+    }
+
+    /// Signs in with email/password via `POST /api/auth/login`.
+    func login(email: String, password: String) async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let response: AuthResponse = try await apiClient.request(
+                path: "/auth/login",
+                method: .post,
+                body: LoginRequest(email: email, password: password)
+            )
+            finishSignIn(response)
+        } catch {
+            errorMessage = Self.describe(error)
+        }
+    }
+
+    private func finishSignIn(_ response: AuthResponse) {
+        analytics.track(event: "auth_signed_in", properties: [:])
+        appState.signIn(token: response.token, user: response.user)
     }
 
     /// Surfaces a client-side (e.g. cancelled Sign in with Apple) error to the UI.
@@ -60,7 +118,11 @@ final class AuthViewModel {
         }
         switch apiError {
         case .unauthorized:
-            return "Sign in failed. Please try again."
+            return "Invalid email or password."
+        case .httpStatus(409):
+            return "An account with that email already exists."
+        case .decoding:
+            return "The server sent an unexpected response."
         case .network:
             return "Can't reach the server. Check your connection."
         default:

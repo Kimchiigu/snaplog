@@ -321,10 +321,84 @@ extension SnaplogBackendTests {
         }
         try await app.asyncShutdown()
     }
+
+    @Test("R2 webhook returns 503 when no secret is configured")
+    func r2WebhookRejectsWhenUnconfigured() async throws {
+        try await Self.withTestApp { app, _ in
+            try await app.testing().test(.POST, "webhooks/r2-upload-complete", beforeRequest: { req in
+                try req.content.encode(R2EventTest(bucket: "snaplog-media", action: "PUT", key: "test/a.mp4", size: 123))
+            }, afterResponse: { res async in
+                #expect(res.status == .serviceUnavailable)
+            })
+        }
+    }
+
+    @Test("R2 webhook accepts a signed event and records the upload")
+    func r2WebhookAcceptsSignedEvent() async throws {
+        setenv("R2_WEBHOOK_SECRET", "test-webhook-secret", 1)
+        defer { unsetenv("R2_WEBHOOK_SECRET") }
+        try await Self.withTestApp { app, _ in
+            try await app.testing().test(.POST, "webhooks/r2-upload-complete", headers: ["X-Webhook-Secret": "wrong"], beforeRequest: { req in
+                try req.content.encode(R2EventTest(bucket: "snaplog-media", action: "PUT", key: "test/a.mp4", size: 123))
+            }, afterResponse: { res async in
+                #expect(res.status == .forbidden)
+            })
+            try await app.testing().test(.POST, "webhooks/r2-upload-complete", headers: ["X-Webhook-Secret": "test-webhook-secret"], beforeRequest: { req in
+                try req.content.encode(R2EventTest(bucket: "snaplog-media", action: "PUT", key: "test/a.mp4", size: 123))
+            }, afterResponse: { res async in
+                #expect(res.status == .ok)
+            })
+        }
+    }
+
+    @Test("Device registration requires auth and upserts by token")
+    func deviceRegistrationRoundTrip() async throws {
+        try await Self.withTestApp { app, token in
+            try await app.testing().test(.POST, "api/devices", beforeRequest: { req in
+                try req.content.encode(["token": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "platform": "ios"] as [String: String])
+            }, afterResponse: { res async in
+                #expect(res.status == .unauthorized)
+            })
+            try await app.testing().test(.POST, "api/devices", headers: ["Authorization": "Bearer \(token)"], beforeRequest: { req in
+                try req.content.encode(["token": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "platform": "ios"] as [String: String])
+            }, afterResponse: { res async in
+                #expect(res.status == .created)
+            })
+        }
+    }
+
+    @Test("New media logs default to processing status")
+    func mediaLogDefaultsToProcessing() async throws {
+        try await Self.withTestApp { app, token in
+            let (user, _) = try await Self.makeUser(app: app, name: "ClipOwner")
+            _ = token
+            let room = Room(roomType: "friends", maxMembers: 6, inviteCode: "STAT01")
+            try await room.create(on: app.db)
+            let log = MediaLog(userId: user.id!, roomId: room.id!, s3Key: "clips/test-status.mp4", duration: 3)
+            try await log.create(on: app.db)
+            let fetched = try await MediaLog.find(log.id, on: app.db)
+            #expect(fetched?.status == "processing")
+        }
+    }
 }
 
 struct RoomPayload: Content {
     let name: String
     let roomType: String
     let maxMembers: Int
+}
+
+struct R2EventTest: Content {
+    struct Object: Content {
+        let key: String
+        let size: Int
+    }
+    let bucket: String
+    let action: String
+    let object: Object
+    init(bucket: String, action: String, key: String, size: Int) {
+        self.bucket = bucket
+        self.action = action
+        self.object = Object(key: key, size: size)
+    }
 }

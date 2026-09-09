@@ -7,12 +7,11 @@
 
 import Foundation
 
-/// Events emitted by the presence WebSocket.
+/// Events emitted by the `/presence` WebSocket.
 enum PresenceEvent: Sendable, Equatable {
-    case memberStartedRecording(roomID: String, memberID: String)
-    case memberStoppedRecording(roomID: String, memberID: String)
     case connected
     case disconnected
+    case newDigestReady(roomID: String)
 }
 
 /// Manages the `/presence` WebSocket connection and exposes incoming events as an async stream.
@@ -21,7 +20,6 @@ enum PresenceEvent: Sendable, Equatable {
 /// created once and shared (see `AppDependencies.presenceSocket`).
 final class WebSocketManager: NSObject, @unchecked Sendable {
 
-    private let url: URL
     private let session: URLSession
     private let continuation: AsyncStream<PresenceEvent>.Continuation
     private let stream: AsyncStream<PresenceEvent>
@@ -30,21 +28,24 @@ final class WebSocketManager: NSObject, @unchecked Sendable {
     private let stateLock = NSLock()
     private var shouldReconnect = false
     private var reconnectAttempt = 0
+    private var authToken: String?
+    private var pingTask: Task<Void, Never>?
 
-    init(url: URL = AppConfig.presenceWebSocketURL, session: URLSession = .shared) {
-        self.url = url
+    init(session: URLSession = .shared) {
         self.session = session
         (stream, continuation) = AsyncStream.makeStream(of: PresenceEvent.self)
         super.init()
     }
 
-    /// Incoming presence events, deduplicated and delivered on the caller's task.
+    /// Incoming presence events, delivered on the caller's task.
     var events: AsyncStream<PresenceEvent> { stream }
 
-    func connect() {
+    /// Connects to `​/presence?token=<jwt>` and starts a ping keepalive.
+    func connect(token: String) {
         stateLock.lock()
-        defer { stateLock.unlock() }
+        authToken = token
         shouldReconnect = true
+        stateLock.unlock()
         openSocket()
     }
 
@@ -52,23 +53,46 @@ final class WebSocketManager: NSObject, @unchecked Sendable {
         stateLock.lock()
         defer { stateLock.unlock() }
         shouldReconnect = false
+        pingTask?.cancel()
         socketTask?.cancel(with: .normalClosure, reason: nil)
         socketTask = nil
-    }
-
-    func send(_ text: String) async throws {
-        guard let socketTask else { throw APIError.invalidResponse }
-        try await socketTask.send(.string(text))
     }
 
     // MARK: - Internals
 
     private func openSocket() {
-        let task = session.webSocketTask(with: url)
+        stateLock.lock()
+        guard let token = authToken else {
+            stateLock.unlock()
+            return
+        }
+        var request = URLRequest(url: AppConfig.presenceWebSocketURL(token: token))
+        // Skip ngrok's free-tier browser interstitial when tunneling.
+        request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
+        let task = session.webSocketTask(with: request)
         socketTask = task
+        stateLock.unlock()
+
         task.resume()
         receiveLoop(on: task)
+        startPingLoop(on: task)
         continuation.yield(.connected)
+    }
+
+    /// The server expects a literal "ping" text frame and answers "pong".
+    private func startPingLoop(on task: URLSessionWebSocketTask) {
+        pingTask?.cancel()
+        pingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                guard let self, !Task.isCancelled else { return }
+                try? await self.sendPing(on: task)
+            }
+        }
+    }
+
+    private func sendPing(on task: URLSessionWebSocketTask) async {
+        try? await task.send(.string("ping"))
     }
 
     private func receiveLoop(on task: URLSessionWebSocketTask) {
@@ -111,22 +135,22 @@ final class WebSocketManager: NSObject, @unchecked Sendable {
         openSocket()
     }
 
+    /// Backend frames look like `{"event":"NEW_DIGEST_READY","roomId":"…","s3Key":"…"}`
+    /// or `{"event":"CONNECTED"}`.
     private static func decode(_ message: URLSessionWebSocketTask.Message) -> PresenceEvent? {
         guard case .string(let text) = message,
               let data = text.data(using: .utf8) else { return nil }
         struct Payload: Decodable {
-            let type: String
-            let roomID: String?
-            let memberID: String?
+            let event: String
+            let roomId: String?
         }
-        guard let payload = try? JSONDecoder.api.decode(Payload.self, from: data) else { return nil }
-        switch payload.type {
-        case "recording_started":
-            guard let roomID = payload.roomID, let memberID = payload.memberID else { return nil }
-            return .memberStartedRecording(roomID: roomID, memberID: memberID)
-        case "recording_stopped":
-            guard let roomID = payload.roomID, let memberID = payload.memberID else { return nil }
-            return .memberStoppedRecording(roomID: roomID, memberID: memberID)
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
+        switch payload.event {
+        case "CONNECTED":
+            return .connected
+        case "NEW_DIGEST_READY":
+            guard let roomId = payload.roomId else { return nil }
+            return .newDigestReady(roomID: roomId)
         default:
             return nil
         }

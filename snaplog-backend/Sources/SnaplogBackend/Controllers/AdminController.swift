@@ -4,6 +4,7 @@ import Foundation
 import JWT
 import JWTKit
 import Redis
+@preconcurrency import RediStack
 import Vapor
 
 struct AdminToken: JWTPayload {
@@ -46,6 +47,8 @@ struct AdminController: RouteCollection {
         routes.post("admin", "media", ":id", "delete", use: mediaDelete)
         routes.get("admin", "api", "netlogs", use: netlogsJSON)
         routes.get("admin", "api", "traces", use: tracesJSON)
+        routes.get("admin", "api", "dlq", use: dlqJSON)
+        routes.get("admin", "api", "orphan-uploads", use: orphanUploadsJSON)
         routes.get("admin", "upload-test", use: uploadTestPage)
         routes.post("admin", "upload-test", use: uploadSubmit)
     }
@@ -475,6 +478,48 @@ struct AdminController: RouteCollection {
                 pod: $0.pod,
                 spans: $0.spans
             )
+        }
+    }
+
+    struct DlqRow: Content {
+        let job: String
+        let s3Key: String
+        let roomId: String
+        let reason: String
+        let failedAt: String
+    }
+
+    func dlqJSON(req: Request) async throws -> [DlqRow] {
+        let entries = await DlqService.recent(on: req.redis, limit: 25)
+        return entries.map {
+            DlqRow(job: $0.job, s3Key: $0.s3Key, roomId: $0.roomId.uuidString, reason: $0.reason, failedAt: Self.timeFormatter.string(from: $0.failedAt))
+        }
+    }
+
+    struct OrphanUpload: Content {
+        let s3Key: String
+        let seenAt: String
+    }
+
+    /// R2 webhook-seen uploads that never got a `POST /logs/confirm` — abandoned objects
+    /// that are safe to delete from storage.
+    func orphanUploadsJSON(req: Request) async throws -> [OrphanUpload] {
+        guard req.application.environment != .testing else { return [] }
+        let members = (try? await req.redis.smembers(of: RedisKey("snaplog:uploads:seen")).get()) ?? []
+        let rows = members.compactMap { $0.string }
+        let keys = rows.map { $0.split(separator: "|").first.map(String.init) ?? $0 }
+        let known = try await MediaLog.query(on: req.db).filter(\.$s3Key ~~ keys).all().map(\.s3Key)
+        let df = DateFormatter()
+        df.dateFormat = "MM-dd HH:mm"
+        return rows.compactMap { row -> OrphanUpload? in
+            let parts = row.split(separator: "|", maxSplits: 1).map(String.init)
+            let key = parts.first ?? row
+            guard !known.contains(key) else { return nil }
+            var seen = ""
+            if parts.count > 1, let ts = Double(parts[1]) {
+                seen = df.string(from: Date(timeIntervalSince1970: ts))
+            }
+            return OrphanUpload(s3Key: key, seenAt: seen)
         }
     }
 

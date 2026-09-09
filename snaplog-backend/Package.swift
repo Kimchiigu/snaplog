@@ -9,6 +9,10 @@ let package = Package(
     dependencies: [
         // 💧 A server-side Swift web framework.
         .package(url: "https://github.com/vapor/vapor.git", from: "4.121.4"),
+        // 📮 Apple Push Notification service client.
+        .package(url: "https://github.com/vapor/apns.git", from: "4.0.0"),
+        // 🍎 Low-level APNs protocol implementation used directly by the push service.
+        .package(url: "https://github.com/kylebrowning/APNSwift.git", .upToNextMajor(from: "5.0.0")),
         // 🗄 An ORM for SQL and NoSQL databases.
         .package(url: "https://github.com/vapor/fluent.git", from: "4.13.0"),
         // 🐘 Fluent driver for Postgres.
@@ -37,6 +41,8 @@ let package = Package(
             name: "SnaplogBackend",
             dependencies: [
                 .product(name: "Fluent", package: "fluent"),
+                .product(name: "VaporAPNS", package: "apns"),
+                .product(name: "APNS", package: "APNSwift"),
                 .product(name: "FluentPostgresDriver", package: "fluent-postgres-driver"),
                 .product(name: "Leaf", package: "leaf"),
                 .product(name: "Vapor", package: "vapor"),
