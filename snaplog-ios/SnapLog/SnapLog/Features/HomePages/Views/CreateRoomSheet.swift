@@ -1,13 +1,6 @@
-//
-//  CreateRoomSheet.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// Sheet for creating a new room via `POST /api/rooms`.
 struct CreateRoomSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: RoomListViewModel

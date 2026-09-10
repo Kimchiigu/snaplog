@@ -1,13 +1,6 @@
-//
-//  PrimaryButton.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// The app's standard prominent action button.
 struct PrimaryButton: View {
     let title: String
     let systemImage: String?

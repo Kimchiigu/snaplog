@@ -13,7 +13,7 @@ Product requirements: [`PRD-IOS.md`](PRD-IOS.md) · [`PRD-BACKEND.md`](PRD-BACKE
 
 ## Architecture at a glance
 
-<img src="snaplog-backend/docs/snaplog-backend.png">
+<img src="snaplog-backend/docs/snaplog-diagram.png">
 
 
 **Key design decisions**

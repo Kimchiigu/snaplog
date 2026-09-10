@@ -1,13 +1,6 @@
-//
-//  PlaybackModels.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 09/09/26.
-//
 
 import Foundation
 
-/// A playable clip from `GET /api/rooms/:id/playback`.
 struct PlaybackClip: Identifiable, Codable, Hashable, Sendable {
     let s3Key: String
     let url: String
@@ -19,7 +12,6 @@ struct PlaybackClip: Identifiable, Codable, Hashable, Sendable {
     var playbackURL: URL { URL(string: url) ?? URL(fileURLWithPath: "/dev/null") }
 }
 
-/// Clips bucketed by the hour they were captured, e.g. "15.00".
 struct HourlyClipGroup: Identifiable, Hashable, Sendable {
     let hourLabel: String
     let clips: [PlaybackClip]
@@ -28,7 +20,6 @@ struct HourlyClipGroup: Identifiable, Hashable, Sendable {
 }
 
 enum ClipGrouper {
-    /// Groups clips into hourly buckets, newest hour first, clips newest first.
     static func groupByHour(_ clips: [PlaybackClip], calendar: Calendar = .current) -> [HourlyClipGroup] {
         let grouped = Dictionary(grouping: clips) { clip -> DateComponents in
             calendar.dateComponents([.year, .month, .day, .hour], from: clip.createdAt)

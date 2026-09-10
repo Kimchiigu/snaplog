@@ -1,14 +1,7 @@
-//
-//  RoomDetailViewModel.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 09/09/26.
-//
 
 import Foundation
 import Observation
 
-/// Loads a room's playable clips and groups them by capture hour.
 @MainActor
 @Observable
 final class RoomDetailViewModel {
@@ -17,24 +10,30 @@ final class RoomDetailViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
 
-    /// The most recent clip uploaded by `authorName`, if any. Optionally
-    /// restricted to a pre-filtered clip list (e.g. the current hour's).
+    private(set) var liveRoom: Room?
+
+    private let socket: WebSocketManager
+    private var presenceTask: Task<Void, Never>?
+
+    init(
+        apiClient: APIClientProtocol = AppDependencies.apiClient,
+        socket: WebSocketManager = AppDependencies.presenceSocket
+    ) {
+        self.apiClient = apiClient
+        self.socket = socket
+    }
+
     func latestClip(by authorName: String, in clips: [PlaybackClip]? = nil) -> PlaybackClip? {
         (clips ?? hourlyGroups.flatMap(\.clips))
             .filter { $0.authorName == authorName }
             .max { $0.createdAt < $1.createdAt }
     }
 
-    /// Surfaces a message in the view's error banner.
     func report(_ message: String) {
         errorMessage = message
     }
 
     private let apiClient: APIClientProtocol
-
-    init(apiClient: APIClientProtocol = AppDependencies.apiClient) {
-        self.apiClient = apiClient
-    }
 
     func loadPlayback(roomID: UUID) async {
         isLoading = true
@@ -52,13 +51,43 @@ final class RoomDetailViewModel {
         }
     }
 
-    /// Request body for `POST /api/logs/delete`.
+    func fetchRoom(roomID: UUID) async {
+        if let room: Room = try? await apiClient.request(
+            path: "/rooms/\(roomID.uuidString)",
+            method: .get
+        ) {
+            liveRoom = room
+        }
+    }
+
+    func startObservingPresence(roomID: UUID) {
+        presenceTask?.cancel()
+        presenceTask = Task { [weak self] in
+            for await event in self?.socket.events ?? AsyncStream { $0.finish() } {
+                guard let self else { return }
+                switch event {
+                case .memberJoined(let id) where UUID(uuidString: id) == roomID:
+                    await self.fetchRoom(roomID: roomID)
+                case .newLog(let id, _), .logDeleted(let id), .newDigestReady(let id)
+                    where UUID(uuidString: id) == roomID:
+                    await self.loadPlayback(roomID: roomID)
+                default:
+                    break
+                }
+            }
+        }
+    }
+
+    func stopObservingPresence() {
+        presenceTask?.cancel()
+        presenceTask = nil
+    }
+
     private struct DeleteLogRequest: Encodable {
         let roomId: UUID
         let s3Key: String
     }
 
-    /// Deletes one of the user's own clips; returns whether it succeeded.
     func deleteClip(roomID: UUID, s3Key: String) async -> Bool {
         do {
             try await apiClient.requestVoid(
@@ -73,13 +102,39 @@ final class RoomDetailViewModel {
         }
     }
 
-    /// Request body for `PATCH /api/rooms/:id`.
     private struct UpdateRoomRequest: Encodable {
         let name: String?
         let maxMembers: Int?
     }
 
-    /// Updates the room's name and/or size; returns the refreshed room.
+    func deleteRoom(roomID: UUID) async -> Bool {
+        do {
+            try await apiClient.requestVoid(
+                path: "/rooms/\(roomID.uuidString)",
+                method: .delete,
+                body: Optional<Int>.none
+            )
+            return true
+        } catch {
+            errorMessage = "Couldn't delete the room."
+            return false
+        }
+    }
+
+    func leaveRoom(roomID: UUID) async -> Bool {
+        do {
+            try await apiClient.requestVoid(
+                path: "/rooms/\(roomID.uuidString)/leave",
+                method: .post,
+                body: Optional<Int>.none
+            )
+            return true
+        } catch {
+            errorMessage = "Couldn't leave the room."
+            return false
+        }
+    }
+
     func updateRoom(roomID: UUID, name: String?, maxMembers: Int?) async -> Room? {
         do {
             return try await apiClient.request(

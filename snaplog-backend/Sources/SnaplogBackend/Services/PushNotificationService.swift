@@ -29,6 +29,7 @@ enum PushNotificationService {
             teamIdentifier: teamId
         ))
         app.storage[IsConfigured.self] = true
+        app.logger.info("APNs configured: key \(keyId), topic \(topic)")
     }
 
     static var configured: (Application) -> Bool { { $0.storage[IsConfigured.self] ?? false } }
@@ -37,6 +38,57 @@ enum PushNotificationService {
         Environment.get("APNS_TOPIC")
             ?? Environment.get("APPLE_BUNDLE_ID")
             ?? "com.christopherhygunawan.SnapLog"
+    }
+
+    /// Sends "new log" pushes to every member of the room except the logger.
+    /// Used right when a raw clip is confirmed, before stitching finishes.
+    static func notifyRoomNewLog(app: Application, roomId: UUID, authorName: String) async {
+        app.logger.info("PUSH new-log: room \(roomId.uuidString) by \(authorName) — looking up recipients")
+        let authorId = await userIdFromName(name: authorName, on: app.db)
+        var tokenQuery = DeviceToken.query(on: app.db)
+            .join(RoomMember.self, on: \DeviceToken.$user.$id == \RoomMember.$user.$id)
+            .filter(RoomMember.self, \.$room.$id == roomId)
+        if let authorId {
+            tokenQuery = tokenQuery.filter(\DeviceToken.$user.$id != authorId)
+        }
+        let tokens = (try? await tokenQuery.all()) ?? []
+        guard !tokens.isEmpty else {
+            app.logger.notice("PUSH new-log: no other registered devices for room \(roomId.uuidString)")
+            return
+        }
+        app.logger.info("PUSH new-log: sending to \(tokens.count) device(s) for room \(roomId.uuidString)")
+        guard configured(app) else {
+            app.logger.notice("push skipped (APNs not configured): would notify \(tokens.count) devices for room \(roomId)")
+            return
+        }
+        let notification = APNSAlertNotification(
+            alert: .init(
+                title: .raw("\(authorName) logged a clip"),
+                body: .raw("Open SnapLog to watch it.")
+            ),
+            expiration: .none,
+            priority: .immediately,
+            topic: topic,
+            payload: EmptyPayload(),
+            threadID: roomId.uuidString
+        )
+        let client = Environment.get("APNS_ENVIRONMENT") == "production"
+            ? app.apns.client(.production)
+            : app.apns.client(.development)
+        var sent = 0
+        for token in tokens {
+            do {
+                _ = try await client.sendAlertNotification(notification, deviceToken: token.token)
+                sent += 1
+            } catch {
+                app.logger.warning("APNs send failed for token \(token.token.prefix(8))…: \(error)")
+            }
+        }
+        app.logger.info("sent new-log push to \(sent)/\(tokens.count) devices for room \(roomId)")
+    }
+
+    private static func userIdFromName(name: String, on db: any Database) async -> UUID? {
+        try? await User.query(on: db).filter(\.$displayName == name).first()?.id
     }
 
     /// Sends "new digest ready" pushes to every member of the room except the uploader.

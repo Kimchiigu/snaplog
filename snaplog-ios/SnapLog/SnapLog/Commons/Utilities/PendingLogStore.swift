@@ -1,14 +1,7 @@
-//
-//  PendingLogStore.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import Foundation
 import SwiftData
 
-/// SwiftData-backed buffer of snippets that failed to dispatch.
 @MainActor
 final class PendingLogStore {
 
@@ -41,7 +34,6 @@ final class PendingLogStore {
         try? context.save()
     }
 
-    /// Drops buffered snippets whose backing file no longer exists.
     func pruneMissingFiles() {
         for log in pending() where !FileManager.default.fileExists(atPath: log.localFileURL.path) {
             remove(log)

@@ -1,23 +1,13 @@
-//
-//  ReviewView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 09/09/26.
-//
 
 import AVFoundation
 import Photos
 import SwiftUI
 
-/// Review & send: looping preview of the captured clip, multi-select room
-/// destinations, and a caption field. Sending dispatches to every selected room.
 struct ReviewView: View {
     @Environment(\.dismiss) private var dismiss
 
     let clip: CameraView.CapturedClip
-    /// The room the capture started from — selected by default.
     let preselectedRoom: Room?
-    /// Invoked after a successful send so the whole camera flow dismisses.
     let onSent: () -> Void
 
     @State private var roomsViewModel = RoomListViewModel(apiClient: AppDependencies.apiClient)
@@ -30,7 +20,6 @@ struct ReviewView: View {
     @State private var sendError: String?
     @State private var savedToPhotos: Bool?
 
-    // Looping playback.
     @State private var queuePlayer: AVQueuePlayer?
     @State private var playerLooper: AVPlayerLooper?
 
@@ -73,8 +62,6 @@ struct ReviewView: View {
         }
     }
 
-    // MARK: - Nav bar
-
     private var navBar: some View {
         ZStack {
             Text("send")
@@ -82,7 +69,6 @@ struct ReviewView: View {
                 .foregroundStyle(.white)
             HStack {
                 Button {
-                    // Discard the clip — the camera owns nothing anymore.
                     try? FileManager.default.removeItem(at: clip.fileURL)
                     dismiss()
                 } label: {
@@ -109,8 +95,6 @@ struct ReviewView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
-
-    // MARK: - Preview
 
     private var previewCard: some View {
         ZStack {
@@ -157,8 +141,6 @@ struct ReviewView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Clip preview, \(String(format: "%.0f", clip.duration)) seconds")
     }
-
-    // MARK: - Room selection
 
     private var roomSection: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -243,8 +225,6 @@ struct ReviewView: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    // MARK: - Caption
-
     private var captionField: some View {
         TextField("add a caption…", text: $caption, axis: .vertical)
             .font(.subheadline)
@@ -254,8 +234,6 @@ struct ReviewView: View {
             .background(Theme.card, in: .rect(cornerRadius: 20))
             .padding(.top, 4)
     }
-
-    // MARK: - Actions
 
     private func send() {
         guard !selectedRoomIDs.isEmpty, !isSending else { return }
@@ -278,24 +256,29 @@ struct ReviewView: View {
     }
 
     private func saveToPhotos() {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                Task { @MainActor in savedToPhotos = false }
-                return
+        Task { await saveToPhotosAsync() }
+    }
+
+    private func saveToPhotosAsync() async {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            savedToPhotos = false
+            return
+        }
+        do {
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = clip.fileURL.lastPathComponent
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset()
+                    .addResource(with: .video, fileURL: clip.fileURL, options: options)
             }
-            PHPhotoLibrary.shared().performChanges {
-                let options = PHAssetResourceCreationOptions()
-                options.originalFilename = clip.fileURL.lastPathComponent
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .video, fileURL: clip.fileURL, options: options)
-            } completionHandler: { success, _ in
-                Task { @MainActor in savedToPhotos = success }
-            }
+            savedToPhotos = true
+        } catch {
+            savedToPhotos = false
         }
     }
 }
 
-/// SwiftUI bridge for a looping `AVQueuePlayer`.
 struct PlayerContainerView: UIViewRepresentable {
     let player: AVPlayer
 

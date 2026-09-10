@@ -1,14 +1,7 @@
-//
-//  AuthViewModel.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import Foundation
 import Observation
 
-/// Drives the Sign in with Apple flow and hands the resulting JWT to ``AppState``.
 @MainActor
 @Observable
 final class AuthViewModel {
@@ -30,7 +23,6 @@ final class AuthViewModel {
         self.analytics = analytics
     }
 
-    /// Exchanges an Apple identity token for a SnapLog JWT via `POST /api/auth/apple`.
     func signIn(appleIdentityToken: String) async {
         isLoading = true
         errorMessage = nil
@@ -48,7 +40,6 @@ final class AuthViewModel {
         }
     }
 
-    /// Development-only shortcut backed by `POST /api/auth/dev`.
     func devSignIn(displayName: String) async {
         isLoading = true
         errorMessage = nil
@@ -66,7 +57,6 @@ final class AuthViewModel {
         }
     }
 
-    /// Creates an email/password account via `POST /api/auth/register`.
     func register(email: String, password: String, displayName: String) async {
         isLoading = true
         errorMessage = nil
@@ -84,7 +74,6 @@ final class AuthViewModel {
         }
     }
 
-    /// Signs in with email/password via `POST /api/auth/login`.
     func login(email: String, password: String) async {
         isLoading = true
         errorMessage = nil
@@ -107,7 +96,6 @@ final class AuthViewModel {
         appState.signIn(token: response.token, user: response.user)
     }
 
-    /// Surfaces a client-side (e.g. cancelled Sign in with Apple) error to the UI.
     func report(_ error: Error) {
         errorMessage = Self.describe(error)
     }
@@ -131,7 +119,6 @@ final class AuthViewModel {
     }
 }
 
-/// Analytics no-op used in previews and tests.
 struct NoopAnalyticsService: AnalyticsService {
     func track(event: String, properties: [String: String]) {}
 }

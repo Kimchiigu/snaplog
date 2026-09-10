@@ -1,13 +1,6 @@
-//
-//  APIClient.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import Foundation
 
-/// Performs authenticated REST requests against the SnapLog backend.
 final class APIClient: Sendable, APIClientProtocol {
 
     private let session: URLSession
@@ -53,12 +46,9 @@ final class APIClient: Sendable, APIClientProtocol {
         _ = try await send(path: path, method: method, bodyData: encode(body))
     }
 
-    /// Performs a request whose response body is empty (e.g. `202 Accepted` confirmations).
     func requestVoid<Body: Encodable>(path: String, method: HTTPMethod, body: Body?) async throws {
         _ = try await send(path: path, method: method, bodyData: encode(body))
     }
-
-    // MARK: - Internals
 
     private func encode<Body: Encodable>(_ body: Body?) throws -> Data? {
         guard let body else { return nil }
@@ -70,8 +60,6 @@ final class APIClient: Sendable, APIClientProtocol {
     }
 
     private func send(path: String, method: HTTPMethod, bodyData: Data?) async throws -> Data {
-        // String concatenation, not relative-URL resolution: RFC 3986 would
-        // discard the "/api" segment of the base when joining an absolute path.
         guard let url = URL(string: baseURL.absoluteString + path) else {
             throw APIError.invalidURL
         }
@@ -79,7 +67,9 @@ final class APIClient: Sendable, APIClientProtocol {
         request.httpMethod = method.rawValue
         request.httpBody = bodyData
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Skip ngrok's free-tier browser interstitial when tunneling.
+        if method == .post {
+            request.setValue(UUID().uuidString, forHTTPHeaderField: "Idempotency-Key")
+        }
         request.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
         if let token = tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -94,8 +84,6 @@ final class APIClient: Sendable, APIClientProtocol {
             case .success:
                 return data
             case .unauthorized:
-                // Let the app drop the stale session (expired or revoked JWT)
-                // instead of every caller silently failing.
                 onUnauthorized?()
                 throw APIError.unauthorized
             case .failure:
@@ -109,7 +97,6 @@ final class APIClient: Sendable, APIClientProtocol {
     }
 }
 
-/// Minimal protocol so ViewModels can be tested with a mock.
 protocol APIClientProtocol: Sendable {
     func request<Body: Encodable, Response: Decodable>(
         path: String, method: HTTPMethod, body: Body?
@@ -142,7 +129,6 @@ private enum HTTPStatusCategory {
 }
 
 extension JSONDecoder {
-    /// Matches Vapor's defaults: camelCase keys and ISO-8601 date strings.
     static let api: JSONDecoder = {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

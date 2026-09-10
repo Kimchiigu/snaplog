@@ -1,14 +1,7 @@
-//
-//  KeychainStore.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import Foundation
 import Security
 
-/// Abstraction over the Keychain so state objects and tests don't touch it directly.
 protocol KeychainStoring: Sendable {
     func saveToken(_ token: String)
     func readToken() -> String?
@@ -17,7 +10,6 @@ protocol KeychainStoring: Sendable {
     func readAppleUserId() -> String?
 }
 
-/// Stores the backend JWT in the iOS Keychain.
 struct KeychainStore: KeychainStoring {
 
     private let service: String
@@ -51,8 +43,6 @@ struct KeychainStore: KeychainStoring {
         SecItemDelete(baseQuery() as CFDictionary)
     }
 
-    /// The `appleUserId` behind the session, used for credential-state checks.
-    /// `nil` clears it (email / dev sign-ins have no Apple credential to track).
     func saveAppleUserId(_ appleUserId: String?) {
         let query = baseQuery(account: "appleUserId")
         SecItemDelete(query as CFDictionary)

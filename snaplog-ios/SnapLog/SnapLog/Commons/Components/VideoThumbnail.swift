@@ -1,15 +1,7 @@
-//
-//  VideoThumbnail.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 10/09/26.
-//
 
 import AVFoundation
 import SwiftUI
 
-/// Loads a single frame from a remote video URL and fills the available
-/// space with it; shows a charcoal placeholder until (or unless) it loads.
 struct VideoThumbnail: View {
     let url: URL
 

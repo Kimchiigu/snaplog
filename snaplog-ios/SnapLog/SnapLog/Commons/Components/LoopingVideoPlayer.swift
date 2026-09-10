@@ -1,15 +1,7 @@
-//
-//  LoopingVideoPlayer.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 10/09/26.
-//
 
 import AVFoundation
 import SwiftUI
 
-/// Streams a remote clip and loops it silently, filling the available space.
-/// Used as live video backgrounds on cards and tiles (no play buttons).
 struct LoopingVideoPlayer: View {
     let url: URL
     var isMuted = true
@@ -26,8 +18,11 @@ struct LoopingVideoPlayer: View {
             }
         }
         .clipped()
-        .task {
-            guard player == nil else { return }
+        .task(id: url) {
+            player?.pause()
+            looper?.disableLooping()
+            looper = nil
+            player = nil
             let item = AVPlayerItem(url: url)
             let queuePlayer = AVQueuePlayer()
             looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
@@ -43,7 +38,6 @@ struct LoopingVideoPlayer: View {
     }
 }
 
-/// SwiftUI bridge rendering an `AVPlayer`'s layer directly.
 struct AVPlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
 

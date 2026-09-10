@@ -1,13 +1,6 @@
-//
-//  ProfileView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 09/09/26.
-//
 
 import SwiftUI
 
-/// Profile settings: account info, sign out, and account deletion.
 struct ProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState

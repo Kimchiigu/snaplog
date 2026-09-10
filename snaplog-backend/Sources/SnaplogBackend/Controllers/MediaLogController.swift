@@ -64,6 +64,8 @@ struct MediaLogController: RouteCollection {
                 with: [RESPValue(from: RedisKey(key)), RESPValue(from: original)]
             ).get()
         }
+        // Let the room's members know a clip disappeared.
+        RoomController.publishRoomEvent(on: req, event: "LOG_DELETED", roomId: body.roomId, s3Key: body.s3Key)
         return .noContent
     }
     @Sendable
@@ -104,6 +106,22 @@ struct MediaLogController: RouteCollection {
         guard body.duration > 0, body.duration <= 60 else {
             throw Abort(.badRequest, reason: "duration must be between 0 and 60 seconds.")
         }
+
+        // One log per user per clock hour: a log at 9:25 blocks the next
+        // until 10:00. Checking the handful of most recent logs is enough.
+        let recentLogs = try await MediaLog.query(on: req.db)
+            .filter(\.$user.$id == user.id!)
+            .filter(\.$room.$id == body.roomId)
+            .sort(\.$createdAt, .descending)
+            .limit(5)
+            .all()
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date()
+        if recentLogs.map(\.createdAt).compactMap({ $0 })
+            .contains(where: { calendar.isDate($0, equalTo: now, toGranularity: .hour) }) {
+            throw Abort(.conflict, reason: "You already logged this hour. Try again at the top of the hour.")
+        }
+
         let log = MediaLog(
             userId: user.id!,
             roomId: body.roomId,
@@ -118,6 +136,20 @@ struct MediaLogController: RouteCollection {
                 StitchVideoJob.self,
                 StitchVideoJobPayload(roomId: body.roomId, s3Key: body.s3Key, duration: body.duration, traceId: req.trace.id),
                 maxRetryCount: DlqService.maxAttempts
+            )
+        }
+        // Tell the room's members a new clip just landed (the stitched digest
+        // gets its own NEW_DIGEST_READY event once the worker finishes).
+        req.logger.info("new log confirmed: room \(body.roomId.uuidString) by \(user.displayName) (\(body.s3Key)) — broadcasting + pushing")
+        RoomController.publishRoomEvent(
+            on: req, event: "NEW_LOG", roomId: body.roomId, s3Key: body.s3Key,
+            authorName: user.displayName
+        )
+        // Push notification for members not connected over the WebSocket.
+        let app = req.application
+        Task.detached {
+            await PushNotificationService.notifyRoomNewLog(
+                app: app, roomId: body.roomId, authorName: user.displayName
             )
         }
         return Response(status: .accepted)

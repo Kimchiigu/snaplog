@@ -1,22 +1,11 @@
-//
-//  CameraView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// Full-screen capture experience: primary feed fullscreen, floating secondary
-/// window, viewfinder overlays, and a shutter that records exactly 4 seconds.
 struct CameraView: View {
     @Environment(\.dismiss) private var dismiss
 
-    /// The room this capture started from; it becomes the pre-selected
-    /// destination in the review screen. `nil` when opened from the dock.
     let room: Room?
 
-    /// The app-wide capture session — see ``CameraSessionManager/shared``.
     private let sessionManager = CameraSessionManager.shared
     @State private var viewModel = CameraViewModel(
         apiClient: AppDependencies.apiClient,
@@ -25,6 +14,7 @@ struct CameraView: View {
 
     @State private var capturedClip: CapturedClip?
     @State private var ringProgress: CGFloat = 0
+    @State private var selectedZoom: Double = 1
 
     struct CapturedClip: Identifiable {
         let id = UUID()
@@ -49,8 +39,6 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark)
         .task {
-            // Startup must never wait on network retries — a stuck upload
-            // used to leave the camera on "Preparing…" forever.
             await sessionManager.startup()
             Task.detached(priority: .utility) {
                 await viewModel.retryPendingLogs()
@@ -65,8 +53,6 @@ struct CameraView: View {
             sessionManager.shutdown()
         }
     }
-
-    // MARK: - Capture
 
     private func capture() {
         guard !isRecording else {
@@ -87,8 +73,6 @@ struct CameraView: View {
         }
     }
 
-    // MARK: - Preparing state
-
     private var preparingView: some View {
         ZStack(alignment: .topTrailing) {
             Theme.canvas.ignoresSafeArea()
@@ -102,13 +86,11 @@ struct CameraView: View {
                 } else {
                     ProgressView("Preparing camera…")
                         .foregroundStyle(.white)
-                    // Escape hatch if the session never comes up.
                     Button("Close") { dismiss() }
                         .buttonStyle(.glass)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // X stays reachable even while the camera is still starting.
             closeButton
                 .padding()
         }
@@ -126,8 +108,6 @@ struct CameraView: View {
         }
         .accessibilityLabel("Close camera")
     }
-
-    // MARK: - Live overlay
 
     private var overlayContent: some View {
         VStack(spacing: 0) {
@@ -176,23 +156,21 @@ struct CameraView: View {
         }
     }
 
-    // MARK: - Controls
-
     private var zoomBar: some View {
         GlassEffectContainer(spacing: 4) {
             HStack(spacing: 4) {
                 ForEach([0.5, 1.0, 2.0], id: \.self) { factor in
-                    let isSelected = abs(sessionManager.zoomFactor - factor) < 0.01
                     Button {
+                        selectedZoom = factor
                         sessionManager.setZoom(factor)
                     } label: {
                         Text(factor == 0.5 ? ".5" : String(Int(factor)))
                             .font(.subheadline.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(isSelected ? Theme.canvas : .white)
-                            .frame(width: 38, height: 38)
+                            .foregroundStyle(selectedZoom == factor ? Theme.canvas : .white)
                             .background(
-                                Circle().fill(isSelected ? Theme.accent : .clear)
+                                Circle().fill(selectedZoom == factor ? Theme.accent : .clear)
                             )
+                            .frame(width: 38, height: 38)
                     }
                     .accessibilityLabel("\(factor) times zoom")
                 }
@@ -206,7 +184,6 @@ struct CameraView: View {
     private var shutterButton: some View {
         Button(action: capture) {
             ZStack {
-                // Progress ring around the shutter while recording.
                 Circle()
                     .trim(from: 0, to: ringProgress)
                     .stroke(Theme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))

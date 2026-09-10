@@ -1,25 +1,22 @@
-//
-//  SnapLogApp.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
 @main
 struct SnapLogApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .task {
+                    PushService.shared.configure(apiClient: AppDependencies.apiClient)
+                }
         }
     }
 }
 
-/// Switches between the login flow and the authenticated experience.
 struct RootView: View {
     @Environment(AppState.self) private var appState
 
@@ -27,15 +24,14 @@ struct RootView: View {
         switch appState.flow {
         case .unauthenticated:
             LoginView()
+                .task { PushService.shared.cancelHourlyLogReminder() }
         case .authenticated:
             RoomListView()
-                // Restore the profile of a Keychain-restored session, then
-                // drop it if the Apple credential behind it was revoked.
                 .task {
-                    // Any later 401 (expired/revoked JWT) also ends the session.
                     AuthEventBus.onUnauthorized = { appState.signOut() }
                     await appState.restoreCurrentUserIfNeeded()
                     await appState.validateSession()
+                    await PushService.shared.requestAndRegister()
                 }
         }
     }

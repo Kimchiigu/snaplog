@@ -1,14 +1,6 @@
-//
-//  RoomListView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// Home: brand header, active room cards, and a floating bottom dock that
-/// switches between the camera and the room log list.
 struct RoomListView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel = RoomListViewModel(apiClient: AppDependencies.apiClient)
@@ -24,35 +16,57 @@ struct RoomListView: View {
     @State private var showingJoinSheet = false
     @State private var showingProfile = false
     @State private var showingCamera = false
+    @State private var showingNotifications = false
+    @State private var notificationItems: [RoomListViewModel.NotificationItem] = []
+    @State private var navigationPath: [Room] = []
+    @State private var rotationDetector = RotationDetector()
 
     var body: some View {
-        NavigationStack {
-            GeometryReader { geo in
-                ZStack(alignment: .bottom) {
-                    Theme.canvas.ignoresSafeArea()
-                    VStack(spacing: 0) {
-                        header
-                        roomList
-                    }
-                    dock
+        NavigationStack(path: $navigationPath) {
+            ZStack(alignment: .bottom) {
+                Theme.canvas.ignoresSafeArea()
+                VStack(spacing: 0) {
+                    header
+                    roomList
                 }
-                // Rotating the phone jumps straight into the camera.
-                .onChange(of: geo.size.width > geo.size.height) { _, isLandscape in
-                    showingCamera = isLandscape
+                dock
+                if let notice = viewModel.newLogNotice {
+                    NewLogNoticeCard(notice: notice) {
+                        viewModel.dismissNotice()
+                        if let room = viewModel.rooms.first(where: { $0.id == notice.roomID }) {
+                            navigationPath = [room]
+                        }
+                    } onDismiss: {
+                        viewModel.dismissNotice()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .animation(.spring(duration: 0.35), value: viewModel.newLogNotice)
             .preferredColorScheme(.dark)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Room.self) { room in
                 RoomDetailView(room: room)
             }
             .task {
+                viewModel.currentUserName = appState.currentUser?.displayName
                 if let token = appState.authToken {
                     viewModel.startObservingPresence(token: token)
                 }
                 await viewModel.loadRooms()
             }
-            .onDisappear { viewModel.stopObservingPresence() }
+            .onDisappear {
+                viewModel.stopObservingPresence()
+                rotationDetector.stop()
+            }
+            .task { rotationDetector.start() }
+            .onChange(of: rotationDetector.isLandscape) { _, isLandscape in
+                showingCamera = isLandscape
+            }
             .refreshable { await viewModel.loadRooms() }
             .sheet(isPresented: $showingCreateSheet) {
                 CreateRoomSheet(viewModel: viewModel)
@@ -64,6 +78,13 @@ struct RoomListView: View {
                 ProfileView()
                     .environment(appState)
             }
+            .sheet(isPresented: $showingNotifications) {
+                NotificationsListView(items: notificationItems) { roomID in
+                    if let room = viewModel.rooms.first(where: { $0.id == roomID }) {
+                        navigationPath = [room]
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showingCamera, onDismiss: {
                 selectedTab = .logs
                 Task { await viewModel.loadRooms() }
@@ -72,8 +93,6 @@ struct RoomListView: View {
             }
         }
     }
-
-    // MARK: - Header
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -84,11 +103,11 @@ struct RoomListView: View {
                     showingProfile = true
                 } label: {
                     ZStack {
-                        Circle().fill(Theme.card)
-                            .frame(width: 44, height: 44)
                         SmileyIcon(color: Theme.pink, size: 20)
+                            .frame(width: 44, height: 44)
                     }
                 }
+                .buttonStyle(.glass)
                 .accessibilityLabel("Profile")
             }
             HStack(spacing: 6) {
@@ -102,8 +121,6 @@ struct RoomListView: View {
         .padding(.top, 12)
         .padding(.bottom, 8)
     }
-
-    // MARK: - Room list
 
     @ViewBuilder
     private var roomList: some View {
@@ -154,18 +171,29 @@ struct RoomListView: View {
         .padding(.horizontal, 24)
     }
 
-    // MARK: - Bottom dock
-
     private var dock: some View {
         GlassEffectContainer(spacing: 16) {
             HStack(spacing: 20) {
-                Button {} label: {
+                Button {
+                    notificationItems = viewModel.takeNotifications()
+                    showingNotifications = true
+                } label: {
                     Image(systemName: "bell")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
                         .frame(width: 48, height: 48)
                 }
                 .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
+                .overlay(alignment: .topTrailing) {
+                    if viewModel.unreadNotificationCount > 0 {
+                        Text("\(viewModel.unreadNotificationCount)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Theme.canvas)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Circle().fill(Theme.pink))
+                            .offset(x: 4, y: -4)
+                    }
+                }
                 .accessibilityLabel("Notifications")
 
                 dockTabs

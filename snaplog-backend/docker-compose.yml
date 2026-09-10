@@ -40,9 +40,13 @@ services:
     build: .
     image: snaplog-backend:latest
     env_file: .env
+    volumes:
+      # APNs auth key (.p8) — mount read-only; enable via APNS_* vars in .env.
+      - ./AuthKey.p8:/app/AuthKey.p8:ro
     environment:
       # Inside the compose network Redis is reachable by service name.
       REDIS_HOST: redis
+      APNS_KEY_PATH: /app/AuthKey.p8
     ports:
       - "8080:8080"
     depends_on:
@@ -56,9 +60,12 @@ services:
     build: .
     image: snaplog-backend:latest
     env_file: .env
+    volumes:
+      - ./AuthKey.p8:/app/AuthKey.p8:ro
     environment:
       REDIS_HOST: redis
       POD_ROLE: worker
+      APNS_KEY_PATH: /app/AuthKey.p8
     depends_on:
       redis:
         condition: service_healthy

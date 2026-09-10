@@ -16,6 +16,7 @@ func routes(_ app: Application) throws {
     }
 
     let authenticated = api.grouped(JWTAuthMiddleware())
+        .grouped(IdempotencyMiddleware())
     try authenticated.register(collection: RoomController())
     try authenticated.register(collection: MediaLogController())
     try authenticated.register(collection: UserController())

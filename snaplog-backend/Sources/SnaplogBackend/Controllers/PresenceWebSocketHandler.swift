@@ -57,7 +57,8 @@ final class PresenceWebSocketHandler: @unchecked Sendable {
             guard let data = raw.data(using: .utf8),
                   let event = try? JSONDecoder().decode(RoomEventMessage.self, from: data)
             else { return }
-            let payload = #"{"event":"\#(event.event)","roomId":"\#(event.roomId)","s3Key":"\#(event.s3Key)"}"#
+            let author = event.authorName.map { #","authorName":"\#($0)"# } ?? ""
+            let payload = #"{"event":"\#(event.event)","roomId":"\#(event.roomId)","s3Key":"\#(event.s3Key)"\#(author)}"#
             Task { await self.broadcast(roomId: event.roomId, message: payload) }
         }.whenComplete { _ in }
     }
@@ -65,6 +66,7 @@ final class PresenceWebSocketHandler: @unchecked Sendable {
         let event: String
         let roomId: String
         let s3Key: String
+        let authorName: String?
     }
     private func broadcast(roomId: String, message: String) async {
         let allSockets = state.withLockedValue { $0.sockets.values.flatMap { $0 } }

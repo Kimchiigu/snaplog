@@ -1,16 +1,7 @@
-//
-//  RoomHistoryView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 09/09/26.
-//
 
 import AVFoundation
 import SwiftUI
 
-/// A room's history as a chat-style thread: chronological snippet thumbnails
-/// (friends left, you right) interleaved with text reactions, plus a floating
-/// message input bar.
 struct RoomHistoryView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
@@ -22,7 +13,6 @@ struct RoomHistoryView: View {
     @State private var draft = ""
     @State private var playingClip: PlaybackClip?
 
-    /// A locally-sent text reaction (no message backend yet).
     struct Reaction: Identifiable, Equatable {
         let id = UUID()
         let text: String
@@ -47,26 +37,17 @@ struct RoomHistoryView: View {
         }
     }
 
-    // MARK: - Top bar
-
     private var topBar: some View {
         HStack(spacing: 12) {
             Button {
                 dismiss()
             } label: {
-                HStack(spacing: -6) {
-                    SmileyIcon(color: Theme.accent, size: 16)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Theme.cardElevated))
-                    Image(systemName: "chevron.left")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                }
-                .padding(.leading, 4)
-                .padding(.trailing, 10)
-                .frame(height: 40)
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
             }
-            .glassEffect(.regular.tint(.black.opacity(0.6)), in: .capsule)
+            .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
             .accessibilityLabel("Back")
 
             Spacer()
@@ -83,8 +64,6 @@ struct RoomHistoryView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
-
-    // MARK: - Feed
 
     private var feed: some View {
         ScrollView {
@@ -136,8 +115,6 @@ struct RoomHistoryView: View {
         .transition(.move(edge: .trailing).combined(with: .opacity))
     }
 
-    // MARK: - Input bar
-
     private var inputBar: some View {
         HStack(spacing: 10) {
             Button {
@@ -145,8 +122,8 @@ struct RoomHistoryView: View {
             } label: {
                 SmileyIcon(color: Theme.accent, size: 20)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.cardElevated))
             }
+            .buttonStyle(.glass)
             .accessibilityLabel("Quick reaction")
 
             TextField("message", text: $draft)
@@ -160,13 +137,13 @@ struct RoomHistoryView: View {
                     .font(.body.weight(.bold))
                     .foregroundStyle(Theme.canvas)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.accent))
             }
+            .glassEffect(.regular.tint(Theme.accent.opacity(0.85)), in: .circle)
             .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityLabel("Send message")
         }
         .padding(8)
-        .background(Capsule().fill(Theme.card))
+        .glassEffect(.regular.tint(.black.opacity(0.6)), in: .capsule)
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
@@ -179,10 +156,6 @@ struct RoomHistoryView: View {
     }
 }
 
-// MARK: - Snippet tile
-
-/// A rounded looping-video tile for one logged snippet; friends' tiles sit
-/// left, the user's sit right. Tapping plays the clip fullscreen.
 struct SnippetTile: View {
     let clip: PlaybackClip
     let isMine: Bool
@@ -193,7 +166,6 @@ struct SnippetTile: View {
             ZStack {
                 LoopingVideoPlayer(url: clip.playbackURL)
 
-                // The clip's captured time, not the live clock.
                 Text(Self.capturedTime(clip.createdAt))
                     .font(.system(size: 18, weight: .bold, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.9))

@@ -1,27 +1,22 @@
-//
-//  RoomSettingsSheet.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 10/09/26.
-//
 
 import SwiftUI
 
-/// Editable room details: name, size, member list, and the invite code
-/// others can use to join.
 struct RoomSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let room: Room
     let viewModel: RoomDetailViewModel
-    /// Called with the refreshed room after a successful save.
+    let isOwner: Bool
     let onSaved: (Room) -> Void
+    let onLeft: () -> Void
 
     @State private var name = ""
     @State private var maxMembers = 4
     @State private var isSaving = false
     @State private var saveError: String?
     @State private var copiedCode = false
+    @State private var confirmLeave = false
+    @State private var isLeaving = false
 
     var body: some View {
         NavigationStack {
@@ -65,6 +60,40 @@ struct RoomSettingsSheet: View {
                         }
                     }
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        confirmLeave = true
+                    } label: {
+                        if isLeaving {
+                            ProgressView()
+                        } else {
+                            Label(
+                                isOwner ? "Delete Room" : "Leave Room",
+                                systemImage: isOwner ? "trash" : "rectangle.portrait.and.arrow.right"
+                            )
+                        }
+                    }
+                    .disabled(isLeaving)
+                } footer: {
+                    Text(isOwner
+                         ? "Deleting the room removes it — and every clip in it — for all members."
+                         : "Leaving keeps the room for the other members; you can rejoin with the invite code.")
+                }
+            }
+            .confirmationDialog(
+                isOwner ? "Delete this room?" : "Leave this room?",
+                isPresented: $confirmLeave,
+                titleVisibility: .visible
+            ) {
+                Button(isOwner ? "Delete Room" : "Leave Room", role: .destructive) {
+                    Task { await leaveOrDelete() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(isOwner
+                     ? "All members are removed and every clip in the room is deleted. This can't be undone."
+                     : "You'll stop seeing this room in your list.")
             }
             .navigationTitle("Room Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -95,6 +124,20 @@ struct RoomSettingsSheet: View {
         .onAppear {
             name = room.displayName
             maxMembers = room.maxMembers
+        }
+    }
+
+    private func leaveOrDelete() async {
+        isLeaving = true
+        defer { isLeaving = false }
+        let succeeded = isOwner
+            ? await viewModel.deleteRoom(roomID: room.id)
+            : await viewModel.leaveRoom(roomID: room.id)
+        if succeeded {
+            onLeft()
+            dismiss()
+        } else {
+            saveError = viewModel.errorMessage ?? "Please try again."
         }
     }
 
@@ -132,6 +175,8 @@ struct RoomSettingsSheet: View {
             timeline: []
         ),
         viewModel: RoomDetailViewModel(),
-        onSaved: { _ in }
+        isOwner: true,
+        onSaved: { _ in },
+        onLeft: {}
     )
 }

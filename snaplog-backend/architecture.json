@@ -1,331 +1,437 @@
 {
-  "schema_version": 1,
-  "diagram_type": "architecture",
-  "meta": {
-    "title": "SnapLog Backend",
-    "quality_profile": "showcase",
-    "views": [
-      {
-        "id": "api-path",
-        "label": "API request path",
-        "focus": [
-          "clients",
-          "caddy",
-          "vapor",
-          "postgres"
-        ],
-        "note": "A media-log API request from the iOS client through Caddy to Postgres."
-      },
-      {
-        "id": "upload-stitch",
-        "label": "Upload & stitch",
-        "focus": [
-          "vapor",
-          "r2",
-          "redis",
-          "worker"
-        ],
-        "note": "Presigned R2 upload and the async FFmpeg stitch pipeline."
-      },
-      {
-        "id": "realtime",
-        "label": "Realtime & admin",
-        "focus": [
-          "vapor",
-          "redis",
-          "admin"
-        ],
-        "note": "WebSocket presence, live netlog streaming, and the Leaf admin portal."
-      }
-    ]
-  },
-  "components": [
-    {
-      "id": "clients",
-      "type": "external",
-      "label": "iOS Clients",
-      "sublabel": "SnapLog app",
-      "pos": [
-        40,
-        300
-      ],
-      "size": [
-        130,
-        60
-      ],
-      "tag": "Sign in with Apple"
-    },
-    {
-      "id": "caddy",
-      "type": "cloud",
-      "label": "Caddy",
-      "sublabel": "reverse proxy :80/:443",
-      "pos": [
-        250,
-        300
-      ],
-      "size": [
-        130,
-        60
-      ],
-      "tag": "X-Real-IP"
-    },
-    {
-      "id": "vapor",
-      "type": "backend",
-      "label": "Vapor API Server",
-      "sublabel": "REST + Leaf admin + WS",
-      "pos": [
-        470,
-        300
-      ],
-      "size": [
-        150,
-        70
-      ],
-      "tag": "JWT-protected /api"
-    },
-    {
-      "id": "postgres",
-      "type": "database",
-      "label": "PostgreSQL",
-      "sublabel": "Neon :5432",
-      "pos": [
-        710,
-        300
-      ],
-      "size": [
-        130,
-        60
-      ]
-    },
-    {
-      "id": "redis",
-      "type": "messagebus",
-      "label": "Redis",
-      "sublabel": "queues · pub/sub · cache",
-      "pos": [
-        470,
-        140
-      ],
-      "size": [
-        150,
-        64
-      ]
-    },
-    {
-      "id": "r2",
-      "type": "cloud",
-      "label": "Cloudflare R2",
-      "sublabel": "media object storage",
-      "pos": [
-        470,
-        460
-      ],
-      "size": [
-        150,
-        60
-      ]
-    },
-    {
-      "id": "worker",
-      "type": "backend",
-      "label": "Queue Worker",
-      "sublabel": "FFmpeg stitch",
-      "pos": [
-        710,
-        460
-      ],
-      "size": [
-        130,
-        60
-      ]
-    },
-    {
-      "id": "admin",
-      "type": "frontend",
-      "label": "Admin Portal",
-      "sublabel": "Leaf dashboard",
-      "pos": [
-        250,
-        140
-      ],
-      "size": [
-        130,
-        64
-      ],
-      "tag": "JWT cookie session"
-    },
-    {
-      "id": "hpa",
-      "type": "cloud",
-      "label": "Kubernetes HPA",
-      "sublabel": "autoscale 2–10 pods",
-      "pos": [
-        920,
-        140
-      ],
-      "size": [
-        140,
-        64
-      ],
-      "tag": "CPU 70% + PDB"
-    },
-    {
-      "id": "appleid",
-      "type": "security",
-      "label": "Apple ID",
-      "sublabel": "identity token",
-      "pos": [
-        40,
-        140
-      ],
-      "size": [
-        130,
-        64
-      ]
-    }
+ "schema_version": 1,
+ "diagram_type": "architecture",
+ "meta": {
+  "title": "SnapLog Backend",
+  "locale": "en",
+  "quality_profile": "showcase",
+  "viewBox": [
+   1280,
+   640
   ],
-  "boundaries": [
-    {
-      "kind": "region",
-      "label": "Docker Compose / k8s cluster",
-      "wraps": [
-        "caddy",
-        "vapor",
-        "postgres",
-        "redis",
-        "worker",
-        "hpa"
-      ]
-    },
-    {
-      "kind": "security-group",
-      "label": "JWT middleware",
-      "wraps": [
-        "vapor"
-      ]
-    }
-  ],
-  "connections": [
-    {
-      "id": "clients-to-caddy",
-      "from": "clients",
-      "to": "caddy",
-      "label": "HTTPS",
-      "variant": "emphasis"
-    },
-    {
-      "id": "appleid-verify",
-      "from": "appleid",
-      "to": "vapor",
-      "label": "verify identity token",
-      "variant": "security",
-      "fromSide": "right",
-      "toSide": "top"
-    },
-    {
-      "id": "caddy-to-vapor",
-      "from": "caddy",
-      "to": "vapor",
-      "label": "proxy :8080"
-    },
-    {
-      "id": "vapor-sql",
-      "from": "vapor",
-      "to": "postgres",
-      "label": "Fluent SQL",
-      "labelDy": 18
-    },
-    {
-      "id": "vapor-redis",
-      "from": "vapor",
-      "to": "redis",
-      "label": "timelines · pub/sub",
-      "fromSide": "top",
-      "toSide": "bottom",
-      "labelDy": -50
-    },
-    {
-      "id": "admin-to-vapor",
-      "from": "admin",
-      "to": "vapor",
-      "label": "admin pages + live logs WS",
-      "fromSide": "right",
-      "toSide": "top"
-    },
-    {
-      "id": "presign",
-      "from": "vapor",
-      "to": "r2",
-      "label": "presigned PUT",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "top",
-      "labelDy": 30,
-      "labelDx": -50
-    },
-    {
-      "id": "client-upload",
-      "from": "clients",
-      "to": "r2",
-      "label": "media upload (direct)",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "left"
-    },
-    {
-      "id": "enqueue-stitch",
-      "from": "vapor",
-      "to": "worker",
-      "label": "enqueue stitch job",
-      "variant": "dashed",
-      "fromSide": "bottom",
-      "toSide": "top"
-    },
-    {
-      "id": "worker-fetch",
-      "from": "worker",
-      "to": "r2",
-      "label": "fetch segments",
-      "fromSide": "left",
-      "toSide": "right"
-    },
-    {
-      "id": "hpa-vapor",
-      "from": "hpa",
-      "to": "vapor",
-      "label": "scale replicas",
-      "fromSide": "left",
-      "toSide": "top"
-    }
-  ],
-  "cards": [
-    {
-      "dot": "cyan",
-      "title": "Edge",
-      "items": [
-        "Caddy is the single public entry point, tags traffic with X-Real-IP",
-        "Direct-to-R2 uploads keep large media off the API servers"
-      ]
-    },
-    {
-      "dot": "emerald",
-      "title": "Application",
-      "items": [
-        "Vapor 4 serves the JWT-protected REST API, Leaf admin portal, and WebSockets",
-        "Queue worker runs FFmpeg stitching outside the request path",
-        "Redis backs timelines, room pub/sub, job queues, and the live netlog"
-      ]
-    },
-    {
-      "dot": "rose",
-      "title": "Operations",
-      "items": [
-        "Kubernetes HPA scales app pods on 70% CPU with a PodDisruptionBudget",
-        "Heartbeat pod registry in Redis survives replica churn",
-        "Network logs streamed live to the admin dashboard over WebSocket"
-      ]
-    }
+  "views": [
+   {
+    "id": "api-path",
+    "label": "API request path",
+    "focus": [
+     "ios",
+     "ngrok",
+     "caddy",
+     "vapor",
+     "postgres"
+    ],
+    "note": "A REST request moves from the app, through ngrok and Caddy, to Vapor and then to Postgres."
+   },
+   {
+    "id": "upload-stitch",
+    "label": "Upload & stitch",
+    "focus": [
+     "ios",
+     "vapor",
+     "r2",
+     "redis",
+     "worker"
+    ],
+    "note": "The app uploads a clip direct to R2. Vapor queues a stitch job. The worker makes the day video."
+   },
+   {
+    "id": "realtime-push",
+    "label": "Realtime & push",
+    "focus": [
+     "ios",
+     "vapor",
+     "redis",
+     "worker",
+     "apns"
+    ],
+    "note": "Room events go through Redis to the WebSocket. APNs sends the alerts to the app."
+   }
   ]
+ },
+ "components": [
+  {
+   "id": "ios",
+   "type": "external",
+   "label": "iOS App",
+   "sublabel": "SnapLog client",
+   "pos": [
+    40,
+    320
+   ],
+   "size": [
+    130,
+    64
+   ],
+   "tag": "Sign in with Apple"
+  },
+  {
+   "id": "appleid",
+   "type": "security",
+   "label": "Apple ID",
+   "sublabel": "identity token",
+   "pos": [
+    40,
+    140
+   ],
+   "size": [
+    130,
+    60
+   ]
+  },
+  {
+   "id": "ngrok",
+   "type": "external",
+   "label": "ngrok Tunnel",
+   "sublabel": "public HTTPS gateway",
+   "pos": [
+    230,
+    320
+   ],
+   "size": [
+    140,
+    64
+   ]
+  },
+  {
+   "id": "caddy",
+   "type": "cloud",
+   "label": "Caddy",
+   "sublabel": "reverse proxy :80/:443",
+   "pos": [
+    440,
+    320
+   ],
+   "size": [
+    130,
+    64
+   ],
+   "tag": "X-Real-IP"
+  },
+  {
+   "id": "admin",
+   "type": "frontend",
+   "label": "Admin Portal",
+   "sublabel": "Leaf pages",
+   "pos": [
+    230,
+    140
+   ],
+   "size": [
+    130,
+    60
+   ],
+   "tag": "JWT cookie"
+  },
+  {
+   "id": "vapor",
+   "type": "backend",
+   "label": "Vapor App",
+   "sublabel": "REST + WebSocket + APNs",
+   "pos": [
+    650,
+    300
+   ],
+   "size": [
+    160,
+    84
+   ],
+   "tag": "JWT + idempotency"
+  },
+  {
+   "id": "redis",
+   "type": "messagebus",
+   "label": "Redis",
+   "sublabel": "queues · pub/sub · cache",
+   "pos": [
+    650,
+    140
+   ],
+   "size": [
+    160,
+    64
+   ]
+  },
+  {
+   "id": "postgres",
+   "type": "database",
+   "label": "PostgreSQL",
+   "sublabel": "external, via DATABASE_URL",
+   "pos": [
+    880,
+    300
+   ],
+   "size": [
+    150,
+    64
+   ]
+  },
+  {
+   "id": "apns",
+   "type": "cloud",
+   "label": "APNs",
+   "sublabel": "push alerts",
+   "pos": [
+    1080,
+    300
+   ],
+   "size": [
+    140,
+    64
+   ]
+  },
+  {
+   "id": "r2",
+   "type": "cloud",
+   "label": "Cloudflare R2",
+   "sublabel": "clip storage",
+   "pos": [
+    880,
+    470
+   ],
+   "size": [
+    150,
+    60
+   ]
+  },
+  {
+   "id": "worker",
+   "type": "backend",
+   "label": "Queue Worker",
+   "sublabel": "FFmpeg stitch",
+   "pos": [
+    1080,
+    470
+   ],
+   "size": [
+    140,
+    60
+   ]
+  }
+ ],
+ "boundaries": [
+  {
+   "kind": "region",
+   "label": "Docker Compose host",
+   "wraps": [
+    "caddy",
+    "vapor",
+    "redis",
+    "worker"
+   ]
+  },
+  {
+   "kind": "security-group",
+   "label": "JWT + idempotency check",
+   "wraps": [
+    "vapor"
+   ]
+  }
+ ],
+ "connections": [
+  {
+   "id": "ios-ngrok",
+   "from": "ios",
+   "to": "ngrok",
+   "label": "HTTPS",
+   "variant": "emphasis"
+  },
+  {
+   "id": "ngrok-caddy",
+   "from": "ngrok",
+   "to": "caddy",
+   "label": "tunnel :443"
+  },
+  {
+   "id": "caddy-vapor",
+   "from": "caddy",
+   "to": "vapor",
+   "label": "proxy :8080"
+  },
+  {
+   "id": "appleid-verify",
+   "from": "appleid",
+   "to": "vapor",
+   "label": "check identity token",
+   "variant": "security",
+   "fromSide": "right",
+   "toSide": "top"
+  },
+  {
+   "id": "admin-vapor",
+   "from": "admin",
+   "to": "vapor",
+   "label": "admin pages",
+   "fromSide": "right",
+   "toSide": "top"
+  },
+  {
+   "id": "vapor-redis",
+   "from": "vapor",
+   "to": "redis",
+   "label": "pub/sub · queues · keys",
+   "fromSide": "top",
+   "toSide": "bottom",
+   "labelAt": [
+    730,
+    218
+   ]
+  },
+  {
+   "id": "vapor-postgres",
+   "from": "vapor",
+   "to": "postgres",
+   "label": "Fluent SQL"
+  },
+  {
+   "id": "vapor-r2",
+   "from": "vapor",
+   "to": "r2",
+   "label": "presigned PUT",
+   "variant": "dashed",
+   "fromSide": "bottom",
+   "toSide": "top",
+   "labelAt": [
+    855,
+    450
+   ]
+  },
+  {
+   "id": "ios-upload",
+   "from": "ios",
+   "to": "r2",
+   "label": "upload clip direct",
+   "variant": "dashed",
+   "fromSide": "bottom",
+   "toSide": "left",
+   "via": [
+    [
+     105,
+     560
+    ],
+    [
+     800,
+     560
+    ],
+    [
+     800,
+     500
+    ]
+   ],
+   "labelAt": [
+    420,
+    598
+   ]
+  },
+  {
+   "id": "vapor-worker",
+   "from": "vapor",
+   "to": "worker",
+   "label": "queue stitch job",
+   "variant": "dashed",
+   "fromSide": "bottom",
+   "toSide": "top",
+   "labelAt": [
+    1000,
+    548
+   ]
+  },
+  {
+   "id": "worker-r2",
+   "from": "worker",
+   "to": "r2",
+   "label": "fetch clips · write digest",
+   "fromSide": "left",
+   "toSide": "right",
+   "labelDy": 54
+  },
+  {
+   "id": "vapor-apns",
+   "from": "vapor",
+   "to": "apns",
+   "label": "new-log alert",
+   "fromSide": "top",
+   "toSide": "top",
+   "via": [
+    [
+     730,
+     250
+    ],
+    [
+     1150,
+     250
+    ]
+   ],
+   "labelDx": 90
+  },
+  {
+   "id": "worker-apns",
+   "from": "worker",
+   "to": "apns",
+   "label": "digest alert",
+   "fromSide": "top",
+   "toSide": "bottom",
+   "labelDx": 40
+  },
+  {
+   "id": "apns-ios",
+   "from": "apns",
+   "to": "ios",
+   "label": "push alert",
+   "fromSide": "right",
+   "toSide": "left",
+   "via": [
+    [
+     1255,
+     332
+    ],
+    [
+     1255,
+     60
+    ],
+    [
+     20,
+     60
+    ],
+    [
+     20,
+     352
+    ]
+   ],
+   "labelAt": [
+    630,
+    80
+   ]
+  }
+ ],
+ "cards": [
+  {
+   "dot": "cyan",
+   "title": "Edge",
+   "items": [
+    "ngrok is the public gateway; it sends app traffic to Caddy",
+    "Caddy sends the traffic on to the app on :8080",
+    "The app uploads each clip direct to R2 with a presigned PUT"
+   ]
+  },
+  {
+   "dot": "emerald",
+   "title": "Application",
+   "items": [
+    "Vapor serves the REST API, the admin pages, and the room WebSocket",
+    "Redis holds the job queues, the room events, the timeline cache, and the idempotency keys",
+    "The worker makes the day video with FFmpeg, away from the request path",
+    "PostgreSQL runs outside the host; the app reaches it with DATABASE_URL"
+   ]
+  },
+  {
+   "dot": "rose",
+   "title": "Push",
+   "items": [
+    "When a new log comes in, APNs tells each room member except the sender",
+    "When the day video is complete, the worker sends a digest alert",
+    "Each POST request sends an idempotency key; Redis keeps it for 24 hours",
+    "APNs wakes the app when an alert arrives"
+   ]
+  }
+ ]
 }

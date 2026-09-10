@@ -1,14 +1,6 @@
-//
-//  RoomCard.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// Dark charcoal room card for the home list: group thumbnail, title, last
-/// activity, unread dot, smiley badge, and a disclosure chevron.
 struct RoomCard: View {
     let room: Room
     var showsRecordingIndicator: Bool
@@ -47,7 +39,6 @@ struct RoomCard: View {
         .accessibilityLabel(accessibilitySummary)
     }
 
-    /// Stacked member smileys as the room's group thumbnail.
     private var thumbnail: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14)

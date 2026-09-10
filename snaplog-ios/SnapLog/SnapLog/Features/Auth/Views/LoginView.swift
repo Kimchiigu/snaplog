@@ -1,16 +1,7 @@
-//
-//  LoginView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import AuthenticationServices
 import SwiftUI
 
-/// Playful onboarding: cream canvas with doodles, bold SNAPLOG wordmark, and
-/// large black pill actions. "Connect with Apple" opens a sheet styled like
-/// the native Sign in with Apple modal (which contains the real button).
 struct LoginView: View {
     @Environment(AppState.self) private var appState
     @State private var viewModel: AuthViewModel?
@@ -70,8 +61,6 @@ struct LoginView: View {
         }
     }
 
-    // MARK: - Primary actions
-
     @ViewBuilder
     private func actions(viewModel: AuthViewModel) -> some View {
         pillButton(title: "Connect with Apple", icon: "apple.logo") {
@@ -109,11 +98,6 @@ struct LoginView: View {
     }
 }
 
-// MARK: - Apple sheet
-
-/// Bottom sheet styled like the native Sign in with Apple modal, containing
-/// the real `SignInWithAppleButton` and a loading state while the token
-/// exchange runs.
 struct AppleSignInSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: AuthViewModel
@@ -149,7 +133,6 @@ struct AppleSignInSheet: View {
                     .foregroundStyle(.white.opacity(0.9))
             }
 
-            // The profile selector card, native-style.
             HStack(spacing: 12) {
                 ZStack {
                     Circle().fill(Color(hex: 0x2C2C2E))
@@ -217,9 +200,6 @@ struct AppleSignInSheet: View {
     }
 }
 
-// MARK: - Email sheet
-
-/// Email sign-in / registration form on a matching dark sheet.
 struct EmailFormSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: AuthViewModel

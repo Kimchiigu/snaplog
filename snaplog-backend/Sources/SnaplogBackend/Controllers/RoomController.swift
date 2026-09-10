@@ -25,8 +25,11 @@ struct RoomController: RouteCollection {
         routes.get("rooms", use: index)
         routes.post("rooms", use: create)
         routes.post("rooms", "join", use: join)
+        routes.get("rooms", ":roomID", use: show)
         routes.get("rooms", ":roomID", "playback", use: playback)
         routes.patch("rooms", ":roomID", use: update)
+        routes.delete("rooms", ":roomID", use: deleteRoom)
+        routes.post("rooms", ":roomID", "leave", use: leave)
     }
 
     /// Request body for `PATCH /api/rooms/:roomID`.
@@ -75,6 +78,92 @@ struct RoomController: RouteCollection {
             RoomMember.Summary(role: $0.role, joinedAt: $0.joinedAt, user: $0.user)
         }
         return RoomDTO(room: room, members: summaries, timeline: [])
+    }
+
+    /// A single room with its current member list, for live refreshes.
+    @Sendable
+    func show(req: Request) async throws -> RoomDTO {
+        let user = try req.authenticatedUser
+        guard let roomID = req.parameters.get("roomID", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "Invalid room id.")
+        }
+        let room = try await Room.query(on: req.db)
+            .filter(\.$id == roomID)
+            .with(\.$members)
+            .first()
+        guard let room else { throw Abort(.notFound, reason: "No room found.") }
+        guard room.members.contains(where: { $0.id == user.id }) else {
+            throw Abort(.forbidden, reason: "You're not a member of this room.")
+        }
+        let pivots = try await RoomMember.query(on: req.db)
+            .filter(\.$room.$id == roomID)
+            .with(\.$user)
+            .all()
+        return RoomDTO(
+            room: room,
+            members: pivots.map { RoomMember.Summary(role: $0.role, joinedAt: $0.joinedAt, user: $0.user) },
+            timeline: []
+        )
+    }
+
+    /// Deletes a room. Owner-only: everyone else is kicked out (memberships
+    /// and logs are removed with the room).
+    @Sendable
+    func deleteRoom(req: Request) async throws -> HTTPResponseStatus {
+        let user = try req.authenticatedUser
+        guard let roomID = req.parameters.get("roomID", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "Invalid room id.")
+        }
+        let room = try await Room.query(on: req.db)
+            .filter(\.$id == roomID)
+            .first()
+        guard let room else { throw Abort(.notFound, reason: "No room found.") }
+        let myMembership = try await RoomMember.query(on: req.db)
+            .filter(\.$room.$id == roomID)
+            .filter(\.$user.$id == user.id!)
+            .first()
+        guard myMembership?.role == "owner" else {
+            throw Abort(.forbidden, reason: "Only the room owner can delete the room.")
+        }
+
+        try await MediaLog.query(on: req.db).filter(\.$room.$id == roomID).delete()
+        try await RoomMember.query(on: req.db).filter(\.$room.$id == roomID).delete()
+        try await room.delete(on: req.db)
+        _ = try? await req.redis.delete([RedisKey(TimelineCache.zsetKey(roomId: roomID))]).get()
+        Self.publishRoomEvent(on: req, event: "ROOM_DELETED", roomId: roomID, s3Key: "")
+        return .noContent
+    }
+
+    /// Removes the caller's membership. An owner may only leave when they're
+    /// the last member (otherwise the room would be orphaned — delete it
+    /// or hand ownership over first).
+    @Sendable
+    func leave(req: Request) async throws -> HTTPResponseStatus {
+        let user = try req.authenticatedUser
+        guard let roomID = req.parameters.get("roomID", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "Invalid room id.")
+        }
+        let pivots = try await RoomMember.query(on: req.db)
+            .filter(\.$room.$id == roomID)
+            .all()
+        guard let mine = pivots.first(where: { $0.$user.id == user.id }) else {
+            throw Abort(.notFound, reason: "You're not a member of this room.")
+        }
+        let isOwner = mine.role == "owner"
+        let others = pivots.filter { $0.id != mine.id }
+        if isOwner, !others.isEmpty {
+            throw Abort(.conflict, reason: "Delete the room instead — it still has other members.")
+        }
+        try await mine.delete(on: req.db)
+        if others.isEmpty {
+            if let room = try await Room.find(roomID, on: req.db) {
+                try await MediaLog.query(on: req.db).filter(\.$room.$id == roomID).delete()
+                try await room.delete(on: req.db)
+                _ = try? await req.redis.delete([RedisKey(TimelineCache.zsetKey(roomId: roomID))]).get()
+            }
+        }
+        Self.publishRoomEvent(on: req, event: "MEMBER_LEFT", roomId: roomID, s3Key: "")
+        return .noContent
     }
 
     /// Pre-signed GET URLs for every clip in a room, for client-side playback.
@@ -222,7 +311,24 @@ struct RoomController: RouteCollection {
         let summaries = pivots.map {
             RoomMember.Summary(role: $0.role, joinedAt: $0.joinedAt, user: $0.user)
         }
+        // Tell the room's members someone new arrived so they live-refresh.
+        Self.publishRoomEvent(on: req, event: "MEMBER_JOINED", roomId: room.id!, s3Key: "")
         return RoomDTO(room: room, members: summaries, timeline: [])
+    }
+
+    /// Pushes an event over the `room_events` pub/sub channel, which the
+    /// presence WebSocket relays to every connected client. Best-effort:
+    /// a Redis hiccup must not fail the request.
+    static func publishRoomEvent(
+        on req: Request,
+        event: String,
+        roomId: UUID,
+        s3Key: String,
+        authorName: String = ""
+    ) {
+        let json = #"{"event":"\#(event)","roomId":"\#(roomId.uuidString)","s3Key":"\#(s3Key)","authorName":"\#(authorName)"}"#
+        req.redis.publish(json, to: RedisChannelName(TimelineCache.roomEventsChannel))
+            .whenComplete { _ in }
     }
     private static func generateInviteCode() -> String {
         let allowed = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

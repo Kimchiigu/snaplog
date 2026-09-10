@@ -1,13 +1,6 @@
-//
-//  JoinRoomSheet.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 07/09/26.
-//
 
 import SwiftUI
 
-/// Sheet for joining a room with a 6-character invite code via `POST /api/rooms/join`.
 struct JoinRoomSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: RoomListViewModel

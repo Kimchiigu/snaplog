@@ -1,7 +1,3 @@
-//
-//  DoodleBackground.swift
-//  SnapLog
-//
 
 import SwiftUI
 
@@ -10,11 +6,9 @@ struct DoodleBackground: View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
-                // Background Base Color
                 Color(hex: 0xF9F8F3)
                     .ignoresSafeArea()
 
-                // TOP CLUSTER: Stars, Cloud Mascot, Moon, Letter
                 LetterDoodle()
                     .position(x: size.width * 0.12, y: size.height * 0.28)
 
@@ -33,7 +27,6 @@ struct DoodleBackground: View {
                 CrescentMoonDoodle()
                     .position(x: size.width * 0.88, y: size.height * 0.28)
 
-                // MID CLUSTER: Pizza, Peach, Plant
                 PizzaDoodle()
                     .position(x: size.width * 0.18, y: size.height * 0.51)
 
@@ -43,7 +36,6 @@ struct DoodleBackground: View {
                 PlantVaseDoodle()
                     .position(x: size.width * 0.82, y: size.height * 0.51)
 
-                // BOTTOM CLUSTER: Tea Mug, Flames, Ice Cream
                 TeaMugDoodle()
                     .position(x: size.width * 0.2, y: size.height * 0.88)
 
@@ -59,19 +51,14 @@ struct DoodleBackground: View {
     }
 }
 
-// MARK: - Individual Vector Doodles
-
-/// Main Central Cloud Mascot
 struct CloudMascot: View {
     var body: some View {
         ZStack {
-            // Cloud Base
             CloudShape()
                 .fill(Color(hex: 0xFCEBA6))
             CloudShape()
                 .stroke(Color.black, lineWidth: 2.5)
 
-            // Left Eye
             Group {
                 Circle().fill(.white).frame(width: 22, height: 26)
                 Circle().stroke(.black, lineWidth: 2).frame(width: 22, height: 26)
@@ -79,7 +66,6 @@ struct CloudMascot: View {
             }
             .offset(x: -12, y: -8)
 
-            // Right Eye
             Group {
                 Circle().fill(.white).frame(width: 22, height: 26)
                 Circle().stroke(.black, lineWidth: 2).frame(width: 22, height: 26)
@@ -87,7 +73,6 @@ struct CloudMascot: View {
             }
             .offset(x: 12, y: -8)
 
-            // Smile
             DoodleArc()
                 .stroke(Color.black, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .frame(width: 12, height: 8)
@@ -97,7 +82,6 @@ struct CloudMascot: View {
     }
 }
 
-/// Star with Face and Sparkle Rays
 struct StarDoodle: View {
     var hasFace: Bool = false
 
@@ -109,7 +93,6 @@ struct StarDoodle: View {
                 .stroke(Color.black, lineWidth: 2)
 
             if hasFace {
-                // Eyes (^ ^) or (- -)
                 DoodleArc()
                     .stroke(Color.black, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     .frame(width: 5, height: 3)
@@ -120,7 +103,6 @@ struct StarDoodle: View {
                     .frame(width: 5, height: 3)
                     .offset(x: 6, y: -2)
 
-                // Small mouth
                 Circle()
                     .fill(Color.black)
                     .frame(width: 3, height: 3)
@@ -131,7 +113,6 @@ struct StarDoodle: View {
     }
 }
 
-/// Crescent Moon with Sleeping Face
 struct CrescentMoonDoodle: View {
     var body: some View {
         ZStack {
@@ -140,7 +121,6 @@ struct CrescentMoonDoodle: View {
             MoonShape()
                 .stroke(Color.black, lineWidth: 2)
 
-            // Sleeping Eye (^)
             DoodleArc()
                 .stroke(Color.black, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                 .frame(width: 6, height: 3)
@@ -150,7 +130,6 @@ struct CrescentMoonDoodle: View {
     }
 }
 
-/// Pizza Slice Doodle
 struct PizzaDoodle: View {
     var body: some View {
         ZStack {
@@ -159,7 +138,6 @@ struct PizzaDoodle: View {
             PizzaShape()
                 .stroke(Color.black, lineWidth: 2)
 
-            // Pepperoni dots
             Circle().fill(Color(hex: 0xE85A4F)).frame(width: 8, height: 8).offset(x: -10, y: -2)
             Circle().fill(Color(hex: 0xE85A4F)).frame(width: 8, height: 8).offset(x: 10, y: 2)
             Circle().fill(Color(hex: 0xE85A4F)).frame(width: 8, height: 8).offset(x: -2, y: 12)
@@ -169,11 +147,9 @@ struct PizzaDoodle: View {
     }
 }
 
-/// Plant in Purple Vase
 struct PlantVaseDoodle: View {
     var body: some View {
         ZStack {
-            // Vines
             Path { path in
                 path.move(to: CGPoint(x: 30, y: 40))
                 path.addQuadCurve(to: CGPoint(x: 10, y: 10), control: CGPoint(x: 15, y: 25))
@@ -182,7 +158,6 @@ struct PlantVaseDoodle: View {
             }
             .stroke(Color(hex: 0x55B97D), style: StrokeStyle(lineWidth: 2, lineCap: .round))
 
-            // Vase
             VaseShape()
                 .fill(Color(hex: 0x9D81E8))
             VaseShape()
@@ -192,11 +167,9 @@ struct PlantVaseDoodle: View {
     }
 }
 
-/// Tea Mug with Purple Steam
 struct TeaMugDoodle: View {
     var body: some View {
         ZStack {
-            // Mug
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.white)
                 .frame(width: 36, height: 38)
@@ -209,7 +182,6 @@ struct TeaMugDoodle: View {
                 .foregroundStyle(Color(hex: 0x55B97D))
                 .offset(y: 4)
 
-            // Steam
             Path { path in
                 path.move(to: CGPoint(x: 18, y: 0))
                 path.addQuadCurve(to: CGPoint(x: 18, y: -18), control: CGPoint(x: 24, y: -9))
@@ -220,11 +192,9 @@ struct TeaMugDoodle: View {
     }
 }
 
-/// Ice Cream Sundae
 struct IceCreamDoodle: View {
     var body: some View {
         ZStack {
-            // Scoop
             Circle()
                 .fill(Color(hex: 0xFCEBA6))
                 .frame(width: 36, height: 36)
@@ -234,13 +204,11 @@ struct IceCreamDoodle: View {
                 .frame(width: 36, height: 36)
                 .offset(y: -10)
 
-            // Glass Cup
             IceCreamCupShape()
                 .fill(Color(hex: 0xC5E5FC))
             IceCreamCupShape()
                 .stroke(Color.black, lineWidth: 2)
 
-            // Cherry
             Circle()
                 .fill(Color(hex: 0xE85A4F))
                 .frame(width: 8, height: 8)
@@ -285,8 +253,6 @@ struct FlameClusterDoodle: View {
         }
     }
 }
-
-// MARK: - Custom Vector Shapes
 
 struct CloudShape: Shape {
     func path(in rect: CGRect) -> Path {
@@ -383,7 +349,6 @@ struct DoodleArc: Shape {
     }
 }
 
-// MARK: - Color Extension Helper
 extension Color {
     init(hex: UInt, alpha: Double = 1.0) {
         self.init(

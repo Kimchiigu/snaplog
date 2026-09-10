@@ -76,6 +76,7 @@ struct WebhookController {
             let device = DeviceToken(userId: user.id!, token: body.token, platform: body.platform ?? "ios")
             try await device.create(on: req.db)
         }
+        req.logger.info("PUSH device registered: user \(user.displayName), token \(body.token.prefix(12))…")
         return Response(status: .created)
     }
 }
