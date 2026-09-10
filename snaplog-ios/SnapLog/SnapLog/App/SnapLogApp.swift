@@ -29,6 +29,14 @@ struct RootView: View {
             LoginView()
         case .authenticated:
             RoomListView()
+                // Restore the profile of a Keychain-restored session, then
+                // drop it if the Apple credential behind it was revoked.
+                .task {
+                    // Any later 401 (expired/revoked JWT) also ends the session.
+                    AuthEventBus.onUnauthorized = { appState.signOut() }
+                    await appState.restoreCurrentUserIfNeeded()
+                    await appState.validateSession()
+                }
         }
     }
 }

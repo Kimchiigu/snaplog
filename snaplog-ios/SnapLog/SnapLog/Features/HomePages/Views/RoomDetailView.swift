@@ -6,10 +6,12 @@
 //
 
 import AVKit
+import Photos
 import SwiftUI
 
-/// A room's detail: custom nav bar, stacked member cards with the current
-/// hour's timestamp, a tap-to-capture CTA, and the hourly clip timeline.
+/// A room's detail for the *current* hour: member cards with their clips
+/// playing as live video backgrounds, the hour's label, and a tap-to-capture
+/// CTA. Earlier hours live in the history page.
 struct RoomDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var appState
@@ -18,14 +20,45 @@ struct RoomDetailView: View {
 
     @State private var viewModel = RoomDetailViewModel()
     @State private var showingCamera = false
+    @State private var showingHistory = false
+    @State private var showingSettings = false
     @State private var playingClip: PlaybackClip?
+    /// The room after an in-place settings update (name/size/members).
+    @State private var updatedRoom: Room?
+    /// Which clip each member's card is paged to (index into newest-first).
+    @State private var clipPageIndex: [UUID: Int] = [:]
+
+    /// The freshest copy of the room (settings updates included).
+    private var effectiveRoom: Room { updatedRoom ?? room }
+
+    /// The current hour's label, e.g. "08:00" (not the live minute time).
+    private static func hourLabel(for date: Date = Date()) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        return String(format: "%02d:00", hour)
+    }
+
+    /// Only clips captured within the current clock hour are shown here.
+    private var currentHourClips: [PlaybackClip] {
+        let calendar = Calendar.current
+        let now = Date()
+        return viewModel.hourlyGroups
+            .flatMap(\.clips)
+            .filter { calendar.isDate($0.createdAt, equalTo: now, toGranularity: .hour) }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
 
     var body: some View {
-        ZStack {
-            Theme.canvas.ignoresSafeArea()
-            VStack(spacing: 0) {
-                navBar
-                content
+        GeometryReader { geo in
+            ZStack {
+                Theme.canvas.ignoresSafeArea()
+                VStack(spacing: 0) {
+                    navBar
+                    content
+                }
+            }
+            // Rotating the phone jumps straight into the camera.
+            .onChange(of: geo.size.width > geo.size.height) { _, isLandscape in
+                showingCamera = isLandscape
             }
         }
         .preferredColorScheme(.dark)
@@ -35,7 +68,18 @@ struct RoomDetailView: View {
         .fullScreenCover(isPresented: $showingCamera, onDismiss: {
             Task { await viewModel.loadPlayback(roomID: room.id) }
         }) {
-            CameraView(room: room)
+            CameraView(room: effectiveRoom)
+        }
+        .fullScreenCover(isPresented: $showingHistory, onDismiss: {
+            Task { await viewModel.loadPlayback(roomID: room.id) }
+        }) {
+            RoomHistoryView(room: effectiveRoom)
+        }
+        .sheet(isPresented: $showingSettings) {
+            RoomSettingsSheet(room: effectiveRoom, viewModel: viewModel) { updated in
+                updatedRoom = updated
+            }
+            .environment(appState)
         }
         .sheet(item: $playingClip) { clip in
             ClipPlayerSheet(clip: clip)
@@ -53,64 +97,45 @@ struct RoomDetailView: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.card))
+                    .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
             }
             .accessibilityLabel("Back")
 
-            Button {} label: {
-                Image(systemName: "calendar")
+            Button {
+                showingHistory = true
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
                     .font(.body)
-                    .foregroundStyle(Theme.muted)
+                    .foregroundStyle(Theme.accent)
                     .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.card))
+                    .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
             }
-            .accessibilityLabel("Pick a day")
+            .accessibilityLabel("Room history")
 
             Spacer()
 
-            roomSelector
+            Button {
+                showingSettings = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text(effectiveRoom.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Theme.muted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .glassEffect(.regular.tint(.black.opacity(0.6)), in: .capsule)
+            }
+            .accessibilityLabel("Room \(effectiveRoom.displayName), settings")
 
             Spacer()
-
-            Button {} label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.body)
-                    .foregroundStyle(Theme.muted)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.card))
-            }
-            .accessibilityLabel("Share room")
-
-            Button {} label: {
-                Image(systemName: "ellipsis.bubble")
-                    .font(.body)
-                    .foregroundStyle(Theme.muted)
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(Theme.card))
-            }
-            .accessibilityLabel("Room chat")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-    }
-
-    private var roomSelector: some View {
-        HStack(spacing: 8) {
-            Text(room.displayName)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Image(systemName: "chevron.down")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(Theme.muted)
-            Circle()
-                .fill(Theme.accent)
-                .frame(width: 5, height: 5)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Capsule().fill(Theme.card))
-        .accessibilityLabel("Room \(room.displayName)")
     }
 
     // MARK: - Content
@@ -129,17 +154,16 @@ struct RoomDetailView: View {
                             .font(.footnote)
                             .foregroundStyle(Theme.muted)
                     }
-                    ForEach(room.members) { member in
+                    ForEach(effectiveRoom.members) { member in
                         memberCard(member)
                     }
-                    if !viewModel.hourlyGroups.isEmpty {
-                        hourSections
-                    } else if room.members.isEmpty {
-                        Text("No members yet — share invite code \(room.inviteCode).")
+                    if effectiveRoom.members.isEmpty {
+                        Text("No members yet — share invite code \(effectiveRoom.inviteCode).")
                             .font(.footnote)
                             .foregroundStyle(Theme.muted)
                             .padding(.top, 8)
                     }
+                    currentHourTimeline
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 32)
@@ -147,28 +171,49 @@ struct RoomDetailView: View {
         }
     }
 
-    /// One member's stacked card: avatar, hour timestamp overlay, smiley, and
-    /// the tap-to-capture CTA on the signed-in member's card.
+    /// One member's card: their current-hour clips playing as a looping video
+    /// background (paged with left/right taps), the hour label, a 3-dot menu
+    /// with save/delete, and — on the signed-in member's card — the CTA.
     private func memberCard(_ member: RoomMemberDTO) -> some View {
         let isMe = member.displayName == appState.currentUser?.displayName
-        let latest = viewModel.latestClip(by: member.displayName)
+        let clips = currentHourClips.filter { $0.authorName == member.displayName }
+        let index = min(clipPageIndex[member.id] ?? 0, max(clips.count - 1, 0))
+        let current = clips.indices.contains(index) ? clips[index] : nil
 
         return ZStack {
-            Theme.card
+            if let current {
+                LoopingVideoPlayer(url: current.playbackURL)
+            } else {
+                Theme.card
+            }
+
+            // Dim scrim so overlays stay readable over video.
+            LinearGradient(
+                colors: [.black.opacity(0.15), .black.opacity(0.55)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            // Paging zones: tap the left/right edges to move between clips.
+            HStack(spacing: 0) {
+                pageZone(alignment: .leading, visible: index + 1 < clips.count) {
+                    clipPageIndex[member.id] = index + 1
+                }
+                Color.clear
+                    .contentShape(.rect)
+                    .onTapGesture {
+                        if let current { playingClip = current }
+                    }
+                pageZone(alignment: .trailing, visible: index > 0) {
+                    clipPageIndex[member.id] = index - 1
+                }
+            }
 
             VStack {
                 Spacer()
-                LiveTimestamp()
-                    .accessibilityLabel("Captured hour")
-                Spacer()
-            }
-
-            HStack(alignment: .top) {
-                SmileyIcon(
-                    color: smileyColor(for: member),
-                    mood: isMe ? .plain : .upsideDown,
-                    size: 30
-                )
+                Text(Self.hourLabel())
+                    .font(.system(size: 30, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.9))
                 Spacer()
             }
 
@@ -179,20 +224,7 @@ struct RoomDetailView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                     Spacer()
-                    if isMe {
-                        Menu {
-                            Button("Play latest clip") {
-                                if let latest { playingClip = latest }
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.body)
-                                .foregroundStyle(Theme.muted)
-                                .frame(width: 36, height: 36)
-                                .background(Circle().fill(Theme.cardElevated))
-                        }
-                        .accessibilityLabel("More options")
-                    }
+                    clipMenu(current: current, isMine: isMe)
                 }
                 if isMe {
                     Button {
@@ -214,42 +246,106 @@ struct RoomDetailView: View {
         }
         .frame(height: isMe ? 210 : 170)
         .clipShape(.rect(cornerRadius: 24))
-        .contentShape(.rect)
-        .onTapGesture {
-            if let latest { playingClip = latest }
-        }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(member.displayName)'s card\(latest == nil ? ", no clips yet" : "")")
+        .accessibilityLabel("\(member.displayName)'s card\(current == nil ? ", no clips this hour" : ", clip \(index + 1) of \(clips.count)")")
     }
 
-    private func smileyColor(for member: RoomMemberDTO) -> Color {
-        let palette: [Color] = [Theme.pink, Theme.blue, Theme.accent]
-        let index = abs(member.displayName.hashValue) % palette.count
-        return palette[index]
-    }
-
-    // MARK: - Timeline
-
-    private var hourSections: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("today")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.muted)
-                .textCase(.uppercase)
-                .padding(.top, 8)
-            ForEach(viewModel.hourlyGroups) { group in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(group.hourLabel)
-                        .font(.headline.monospacedDigit())
-                        .foregroundStyle(.white)
-                    ForEach(group.clips) { clip in
-                        clipRow(clip)
-                    }
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.card, in: .rect(cornerRadius: 24))
+    /// An invisible tap zone with an optional chevron hint.
+    private func pageZone(
+        alignment: Alignment,
+        visible: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        ZStack {
+            Color.clear.contentShape(.rect)
+            if visible {
+                Image(systemName: alignment == .leading ? "chevron.left" : "chevron.right")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(6)
+                    .background(.black.opacity(0.35), in: .circle)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+                    .padding(.horizontal, 8)
             }
+        }
+        .frame(width: 56)
+        .contentShape(.rect)
+        .onTapGesture { action() }
+        .accessibilityHidden(true)
+    }
+
+    /// The 3-dot menu: save the shown clip to Photos, or delete one's own.
+    @ViewBuilder
+    private func clipMenu(current: PlaybackClip?, isMine: Bool) -> some View {
+        Menu {
+            if let current {
+                Button {
+                    Task { await saveClip(current) }
+                } label: {
+                    Label("Save to Photos", systemImage: "arrow.down.to.line")
+                }
+                Button {
+                    playingClip = current
+                } label: {
+                    Label("Play fullscreen", systemImage: "play.rectangle")
+                }
+            }
+            if isMine, let current {
+                Button(role: .destructive) {
+                    Task { await deleteClip(current) }
+                } label: {
+                    Label("Delete Clip", systemImage: "trash")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.body)
+                .foregroundStyle(Theme.muted)
+                .frame(width: 36, height: 36)
+                .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
+        }
+        .accessibilityLabel("Clip options")
+    }
+
+    /// Downloads the remote clip and saves it to the photo library.
+    private func saveClip(_ clip: PlaybackClip) async {
+        do {
+            let (data, _) = try await URLSession.shared.data(from: clip.playbackURL)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("snaplog-save-\(UUID().uuidString).mp4")
+            try data.write(to: tempURL)
+            let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            guard status == .authorized || status == .limited else { return }
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetCreationRequest.forAsset()
+                    .addResource(with: .video, fileURL: tempURL, options: nil)
+            }
+            try? FileManager.default.removeItem(at: tempURL)
+        } catch {
+            viewModel.report("Couldn't save the clip.")
+        }
+    }
+
+    /// Deletes the shown clip (own clips only) and refreshes.
+    private func deleteClip(_ clip: PlaybackClip) async {
+        if await viewModel.deleteClip(roomID: room.id, s3Key: clip.s3Key) {
+            await viewModel.loadPlayback(roomID: room.id)
+        }
+    }
+
+    // MARK: - Current-hour timeline
+
+    @ViewBuilder
+    private var currentHourTimeline: some View {
+        if !currentHourClips.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(currentHourClips) { clip in
+                    clipRow(clip)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.card, in: .rect(cornerRadius: 24))
         }
     }
 

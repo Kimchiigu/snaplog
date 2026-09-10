@@ -26,6 +26,55 @@ struct RoomController: RouteCollection {
         routes.post("rooms", use: create)
         routes.post("rooms", "join", use: join)
         routes.get("rooms", ":roomID", "playback", use: playback)
+        routes.patch("rooms", ":roomID", use: update)
+    }
+
+    /// Request body for `PATCH /api/rooms/:roomID`.
+    struct UpdateRoomRequest: Content {
+        var name: String?
+        var maxMembers: Int?
+    }
+
+    /// Updates a room's name and/or size. The caller must be a member.
+    @Sendable
+    func update(req: Request) async throws -> RoomDTO {
+        let user = try req.authenticatedUser
+        guard let roomID = req.parameters.get("roomID", as: UUID.self) else {
+            throw Abort(.badRequest, reason: "Invalid room id.")
+        }
+        let body = try req.content.decode(UpdateRoomRequest.self)
+
+        let room = try await Room.query(on: req.db)
+            .filter(\.$id == roomID)
+            .with(\.$members)
+            .first()
+        guard let room else { throw Abort(.notFound, reason: "No room found.") }
+        guard room.members.contains(where: { $0.id == user.id }) else {
+            throw Abort(.forbidden, reason: "You're not a member of this room.")
+        }
+
+        if let name = body.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            room.name = name
+        }
+        if let maxMembers = body.maxMembers {
+            guard [2, 3, 4, 5, 20].contains(maxMembers) else {
+                throw Abort(.badRequest, reason: "maxMembers must be 2, 3, 4, 5, or 20.")
+            }
+            guard room.members.count <= maxMembers else {
+                throw Abort(.badRequest, reason: "Room already has \(room.members.count) members.")
+            }
+            room.maxMembers = maxMembers
+        }
+        try await room.update(on: req.db)
+
+        let pivots = try await RoomMember.query(on: req.db)
+            .filter(\.$room.$id == roomID)
+            .with(\.$user)
+            .all()
+        let summaries = pivots.map {
+            RoomMember.Summary(role: $0.role, joinedAt: $0.joinedAt, user: $0.user)
+        }
+        return RoomDTO(room: room, members: summaries, timeline: [])
     }
 
     /// Pre-signed GET URLs for every clip in a room, for client-side playback.

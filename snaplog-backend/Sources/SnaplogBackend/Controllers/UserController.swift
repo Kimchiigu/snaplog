@@ -4,7 +4,14 @@ import Vapor
 /// Account management for the authenticated user.
 struct UserController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
+        routes.get("users", "me", use: me)
         routes.delete("users", "me", use: deleteAccount)
+    }
+
+    /// The authenticated user's public profile.
+    @Sendable
+    func me(req: Request) async throws -> User.Public {
+        try req.authenticatedUser.public
     }
 
     /// Deletes the account and all of its memberships, logs, and device tokens.

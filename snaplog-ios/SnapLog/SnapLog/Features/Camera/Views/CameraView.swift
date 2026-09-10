@@ -16,7 +16,8 @@ struct CameraView: View {
     /// destination in the review screen. `nil` when opened from the dock.
     let room: Room?
 
-    @State private var sessionManager = CameraSessionManager()
+    /// The app-wide capture session — see ``CameraSessionManager/shared``.
+    private let sessionManager = CameraSessionManager.shared
     @State private var viewModel = CameraViewModel(
         apiClient: AppDependencies.apiClient,
         offlineStore: PendingLogStore()
@@ -48,8 +49,12 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark)
         .task {
-            await viewModel.retryPendingLogs()
+            // Startup must never wait on network retries — a stuck upload
+            // used to leave the camera on "Preparing…" forever.
             await sessionManager.startup()
+            Task.detached(priority: .utility) {
+                await viewModel.retryPendingLogs()
+            }
         }
         .fullScreenCover(item: $capturedClip) { clip in
             ReviewView(clip: clip, preselectedRoom: room) {
@@ -85,21 +90,41 @@ struct CameraView: View {
     // MARK: - Preparing state
 
     private var preparingView: some View {
-        VStack(spacing: 14) {
-            if sessionManager.setupError != nil {
-                ContentUnavailableView {
-                    Label("Camera Unavailable", systemImage: "video.slash")
-                } description: {
-                    Text(sessionManager.setupError ?? "")
-                } actions: {
+        ZStack(alignment: .topTrailing) {
+            Theme.canvas.ignoresSafeArea()
+            VStack(spacing: 14) {
+                if sessionManager.setupError != nil {
+                    ContentUnavailableView {
+                        Label("Camera Unavailable", systemImage: "video.slash")
+                    } description: {
+                        Text(sessionManager.setupError ?? "")
+                    }
+                } else {
+                    ProgressView("Preparing camera…")
+                        .foregroundStyle(.white)
+                    // Escape hatch if the session never comes up.
                     Button("Close") { dismiss() }
+                        .buttonStyle(.glass)
                 }
-            } else {
-                ProgressView("Preparing camera…")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // X stays reachable even while the camera is still starting.
+            closeButton
+                .padding()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+    }
+
+    private var closeButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .glassEffect(.regular.tint(.black.opacity(0.5)), in: .circle)
+        }
+        .accessibilityLabel("Close camera")
     }
 
     // MARK: - Live overlay
@@ -141,21 +166,12 @@ struct CameraView: View {
                         .foregroundStyle(Theme.muted)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(.ultraThinMaterial))
+                        .glassEffect(.regular.tint(.black.opacity(0.5)), in: .capsule)
                 }
             }
             HStack {
                 Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(.black.opacity(0.45)))
-                }
-                .accessibilityLabel("Close camera")
+                closeButton
             }
         }
     }
@@ -163,24 +179,27 @@ struct CameraView: View {
     // MARK: - Controls
 
     private var zoomBar: some View {
-        HStack(spacing: 4) {
-            ForEach([0.5, 1.0, 2.0], id: \.self) { factor in
-                Button {
-                    sessionManager.setZoom(factor)
-                } label: {
-                    Text(factor == 0.5 ? ".5" : String(Int(factor)))
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(abs(sessionManager.zoomFactor - factor) < 0.01 ? Theme.canvas : .white)
-                        .frame(width: 38, height: 38)
-                        .background(
-                            Circle().fill(abs(sessionManager.zoomFactor - factor) < 0.01 ? Theme.accent : .black.opacity(0.45))
-                        )
+        GlassEffectContainer(spacing: 4) {
+            HStack(spacing: 4) {
+                ForEach([0.5, 1.0, 2.0], id: \.self) { factor in
+                    let isSelected = abs(sessionManager.zoomFactor - factor) < 0.01
+                    Button {
+                        sessionManager.setZoom(factor)
+                    } label: {
+                        Text(factor == 0.5 ? ".5" : String(Int(factor)))
+                            .font(.subheadline.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(isSelected ? Theme.canvas : .white)
+                            .frame(width: 38, height: 38)
+                            .background(
+                                Circle().fill(isSelected ? Theme.accent : .clear)
+                            )
+                    }
+                    .accessibilityLabel("\(factor) times zoom")
                 }
-                .accessibilityLabel("\(factor) times zoom")
             }
+            .padding(5)
+            .glassEffect(.regular.tint(.black.opacity(0.5)), in: .capsule)
         }
-        .padding(5)
-        .background(Capsule().fill(.black.opacity(0.3)))
         .padding(.bottom, 18)
     }
 
@@ -203,30 +222,32 @@ struct CameraView: View {
     }
 
     private var bottomActionBar: some View {
-        HStack(spacing: 48) {
-            Button {
-                sessionManager.setTorch(!sessionManager.isTorchOn)
-            } label: {
-                Image(systemName: sessionManager.isTorchOn ? "flashlight.on.fill" : "flashlight.off.fill")
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(.black.opacity(0.45)))
-            }
-            .disabled(sessionManager.isFrontPrimary)
-            .accessibilityLabel(sessionManager.isTorchOn ? "Turn off flashlight" : "Turn on flashlight")
+        GlassEffectContainer(spacing: 48) {
+            HStack(spacing: 48) {
+                Button {
+                    sessionManager.setTorch(!sessionManager.isTorchOn)
+                } label: {
+                    Image(systemName: sessionManager.isTorchOn ? "flashlight.on.fill" : "flashlight.off.fill")
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                }
+                .glassEffect(.regular.tint(.black.opacity(0.5)), in: .circle)
+                .disabled(sessionManager.isFrontPrimary)
+                .accessibilityLabel(sessionManager.isTorchOn ? "Turn off flashlight" : "Turn on flashlight")
 
-            Button {
-                sessionManager.switchCameras()
-            } label: {
-                Image(systemName: "arrow.triangle.2.circlepath.camera")
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .frame(width: 46, height: 46)
-                    .background(Circle().fill(.black.opacity(0.45)))
+                Button {
+                    sessionManager.switchCameras()
+                } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.body)
+                        .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+                }
+                .glassEffect(.regular.tint(.black.opacity(0.5)), in: .circle)
+                .disabled(!sessionManager.isMultiCamSupported)
+                .accessibilityLabel(sessionManager.isFrontPrimary ? "Switch to rear camera" : "Switch to front camera")
             }
-            .disabled(!sessionManager.isMultiCamSupported)
-            .accessibilityLabel(sessionManager.isFrontPrimary ? "Switch to rear camera" : "Switch to front camera")
         }
     }
 }

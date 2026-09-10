@@ -1,6 +1,8 @@
 import Fluent
 import Foundation
 import Queues
+import Redis
+@preconcurrency import RediStack
 import Vapor
 struct UploadURLRequest: Content {
     let roomId: UUID
@@ -15,10 +17,54 @@ struct ConfirmLogRequest: Content {
     let duration: Double
     let roomId: UUID
 }
+/// Request body for `POST /api/logs/delete`.
+struct DeleteLogRequest: Content {
+    let roomId: UUID
+    let s3Key: String
+}
+
 struct MediaLogController: RouteCollection {
     func boot(routes: any RoutesBuilder) throws {
         routes.post("logs", "upload-url", use: uploadURL)
         routes.post("logs", "confirm", use: confirm)
+        routes.post("logs", "delete", use: delete)
+    }
+
+    /// Deletes one of the caller's own logs from a room (DB row + timeline cache).
+    @Sendable
+    func delete(req: Request) async throws -> HTTPResponseStatus {
+        let user = try req.authenticatedUser
+        let body = try req.content.decode(DeleteLogRequest.self)
+        try await Self.assertMembership(userId: user.id!, roomId: body.roomId, on: req.db)
+
+        let log = try await MediaLog.query(on: req.db)
+            .filter(\.$s3Key == body.s3Key)
+            .filter(\.$room.$id == body.roomId)
+            .first()
+        guard let log else { throw Abort(.notFound, reason: "No log found for that key.") }
+        guard log.$user.id == user.id else {
+            throw Abort(.forbidden, reason: "You can only delete your own logs.")
+        }
+        try await log.delete(on: req.db)
+
+        // Keep the room's cached timeline in sync.
+        let key = TimelineCache.zsetKey(roomId: body.roomId)
+        let redis = req.redis
+        let data = (try? await redis.zrangebyscore(
+            from: RedisKey(key),
+            withScoresBetween: (.inclusive(-.infinity), .inclusive(.infinity))
+        ).get()) ?? []
+        for member in data {
+            guard let original = member.string as String?,
+                  let json = original.data(using: String.Encoding.utf8),
+                  let entry = try? JSONDecoder().decode(TimelineCache.Entry.self, from: json),
+                  entry.s3Key == body.s3Key else { continue }
+            _ = try? await redis.send(
+                command: "ZREM",
+                with: [RESPValue(from: RedisKey(key)), RESPValue(from: original)]
+            ).get()
+        }
+        return .noContent
     }
     @Sendable
     func uploadURL(req: Request) async throws -> UploadURLResponse {

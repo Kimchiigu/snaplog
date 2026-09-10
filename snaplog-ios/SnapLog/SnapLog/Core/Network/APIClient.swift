@@ -13,15 +13,18 @@ final class APIClient: Sendable, APIClientProtocol {
     private let session: URLSession
     private let baseURL: URL
     private let tokenProvider: @Sendable () -> String?
+    private let onUnauthorized: (@Sendable () -> Void)?
 
     init(
         session: URLSession = .shared,
         baseURL: URL = AppConfig.apiBaseURL,
-        tokenProvider: @escaping @Sendable () -> String? = { nil }
+        tokenProvider: @escaping @Sendable () -> String? = { nil },
+        onUnauthorized: (@Sendable () -> Void)? = nil
     ) {
         self.session = session
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
+        self.onUnauthorized = onUnauthorized
     }
 
     func request<Body: Encodable, Response: Decodable>(
@@ -91,6 +94,9 @@ final class APIClient: Sendable, APIClientProtocol {
             case .success:
                 return data
             case .unauthorized:
+                // Let the app drop the stale session (expired or revoked JWT)
+                // instead of every caller silently failing.
+                onUnauthorized?()
                 throw APIError.unauthorized
             case .failure:
                 throw APIError.httpStatus(http.statusCode)
@@ -117,6 +123,7 @@ enum HTTPMethod: String {
     case get = "GET"
     case post = "POST"
     case put = "PUT"
+    case patch = "PATCH"
     case delete = "DELETE"
 }
 

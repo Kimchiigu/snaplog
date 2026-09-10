@@ -77,4 +77,47 @@ struct AuthViewModelTests {
         #expect(appState.currentUser == nil)
         #expect(keychain.readToken() == nil)
     }
+
+    // MARK: - Apple credential tracking
+
+    /// Builds a JWT-shaped string whose payload encodes `claims`.
+    private func fakeJWT(_ claims: [String: String]) -> String {
+        let encoder = JSONEncoder()
+        let segment = { (dict: [String: String]) -> String in
+            let data = (try? encoder.encode(dict)) ?? Data()
+            return data.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        return segment(["alg": "HS256"]) + "." + segment(claims) + ".signature"
+    }
+
+    @Test func appleUserIdIsParsedFromSessionJWT() {
+        let jwt = fakeJWT(["appleUserId": "001234.abcdef.1234", "sub": "user-uuid"])
+        #expect(AppleSignInService.appleUserId(from: jwt) == "001234.abcdef.1234")
+        #expect(AppleSignInService.appleUserId(from: "not-a-jwt") == nil)
+    }
+
+    @Test func onlyRealAppleAccountsAreTracked() {
+        #expect(AppleSignInService.isAppleAccount("001234.abcdef.1234"))
+        #expect(!AppleSignInService.isAppleAccount("email:tester@snaplog.dev"))
+        #expect(!AppleSignInService.isAppleAccount("dev-tester"))
+        #expect(!AppleSignInService.isAppleAccount(nil))
+        #expect(!AppleSignInService.isAppleAccount(""))
+    }
+
+    @Test func signInPersistsAppleCredentialForAppleAccountsOnly() {
+        // Apple sign-in: the credential id is stored for revocation checks.
+        let appleKeychain = MockKeychainStore()
+        let appleState = AppState(keychainStore: appleKeychain)
+        appleState.signIn(token: fakeJWT(["appleUserId": "001234.abcdef"]), user: makeUser())
+        #expect(appleKeychain.readAppleUserId() == "001234.abcdef")
+
+        // Email / dev sign-ins carry no Apple credential to track.
+        let emailKeychain = MockKeychainStore()
+        let emailState = AppState(keychainStore: emailKeychain)
+        emailState.signIn(token: fakeJWT(["appleUserId": "email:tester@snaplog.dev"]), user: makeUser())
+        #expect(emailKeychain.readAppleUserId() == nil)
+    }
 }

@@ -17,10 +17,23 @@ enum AppDependencies {
     /// keychain so it stays valid across sign-in/sign-out.
     static let apiClient: APIClient = {
         let keychain = KeychainStore()
-        return APIClient(tokenProvider: { keychain.readToken() })
+        return APIClient(
+            tokenProvider: { keychain.readToken() },
+            onUnauthorized: { AuthEventBus.unauthorized() }
+        )
     }()
 
     static let analytics: AnalyticsService = AnalyticsManager()
 
     static let presenceSocket = WebSocketManager()
+}
+
+/// Bridges background-thread 401s from `APIClient` to main-actor UI state.
+@MainActor
+enum AuthEventBus {
+    static var onUnauthorized: (() -> Void)?
+
+    nonisolated static func unauthorized() {
+        Task { @MainActor in onUnauthorized?() }
+    }
 }

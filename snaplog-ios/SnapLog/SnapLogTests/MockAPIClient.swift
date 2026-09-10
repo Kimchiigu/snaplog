@@ -85,8 +85,11 @@ final class MockAPIClient: APIClientProtocol, @unchecked Sendable {
 /// In-memory Keychain double.
 final class MockKeychainStore: KeychainStoring, @unchecked Sendable {
     private var token: String?
+    private var appleUserId: String?
 
     func saveToken(_ token: String) { self.token = token }
     func readToken() -> String? { token }
     func deleteToken() { token = nil }
+    func saveAppleUserId(_ appleUserId: String?) { self.appleUserId = appleUserId }
+    func readAppleUserId() -> String? { appleUserId }
 }

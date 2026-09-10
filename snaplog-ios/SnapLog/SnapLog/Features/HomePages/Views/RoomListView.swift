@@ -27,13 +27,19 @@ struct RoomListView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottom) {
-                Theme.canvas.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    header
-                    roomList
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    Theme.canvas.ignoresSafeArea()
+                    VStack(spacing: 0) {
+                        header
+                        roomList
+                    }
+                    dock
                 }
-                dock
+                // Rotating the phone jumps straight into the camera.
+                .onChange(of: geo.size.width > geo.size.height) { _, isLandscape in
+                    showingCamera = isLandscape
+                }
             }
             .preferredColorScheme(.dark)
             .toolbar(.hidden, for: .navigationBar)
@@ -72,7 +78,7 @@ struct RoomListView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Theme.brandText("SETLOG")
+                Theme.brandText("SNAPLOG")
                 Spacer()
                 Button {
                     showingProfile = true
@@ -151,29 +157,31 @@ struct RoomListView: View {
     // MARK: - Bottom dock
 
     private var dock: some View {
-        HStack(spacing: 20) {
-            Button {} label: {
-                Image(systemName: "bell")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(Theme.card))
-            }
-            .accessibilityLabel("Notifications")
+        GlassEffectContainer(spacing: 16) {
+            HStack(spacing: 20) {
+                Button {} label: {
+                    Image(systemName: "bell")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 48, height: 48)
+                }
+                .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
+                .accessibilityLabel("Notifications")
 
-            dockTabs
+                dockTabs
 
-            Button {
-                showingCreateSheet = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(Theme.canvas)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(Theme.accent))
+                Menu {
+                    Button("Create Room", systemImage: "plus") { showingCreateSheet = true }
+                    Button("Join Room", systemImage: "person.badge.plus") { showingJoinSheet = true }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(Theme.canvas)
+                        .frame(width: 48, height: 48)
+                        .background(Circle().fill(Theme.accent))
+                }
+                .accessibilityLabel("Create or join a room")
             }
-            .accessibilityLabel("Create or join a room")
-            .simultaneousGesture(LongPressGesture().onEnded { _ in showingJoinSheet = true })
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
@@ -199,7 +207,7 @@ struct RoomListView: View {
             }
         }
         .padding(4)
-        .background(Capsule().fill(.white.opacity(0.06)))
+        .glassEffect(.regular.tint(.black.opacity(0.6)), in: .capsule)
     }
 }
 

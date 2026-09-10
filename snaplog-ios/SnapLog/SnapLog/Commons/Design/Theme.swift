@@ -28,7 +28,7 @@ enum Theme {
     /// Royal blue for smiley stickers.
     static let blue = Color(hex: 0x2B62F6)
 
-    /// The stylized blue→purple brand gradient for "SETLOG".
+    /// The stylized blue→purple brand gradient for "SNAPLOG".
     static let brandGradient = LinearGradient(
         colors: [Color(hex: 0x2B62F6), Color(hex: 0x8B5CF6), Color(hex: 0xB249F8)],
         startPoint: .leading,

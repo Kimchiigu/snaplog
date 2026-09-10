@@ -6,6 +6,7 @@
 //
 
 import AVFoundation
+import Observation
 import UIKit
 
 /// Runs a multi-cam capture session: one camera is the recorded primary feed
@@ -17,6 +18,7 @@ import UIKit
 /// set once the session is actually running; preview layers attach through
 /// explicit connections so each view binds to the intended camera.
 @MainActor
+@Observable
 final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     nonisolated static let minimumDuration: TimeInterval = 2.0
@@ -44,6 +46,7 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
     private(set) var isRecording = false
     private(set) var isAuthorized = false
     private(set) var setupError: String?
+    private var isStarting = false
 
     /// Whether the front camera is currently the recorded primary feed.
     private(set) var isFrontPrimary = false
@@ -64,19 +67,31 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
 
     // MARK: - Startup
 
+    /// The app-wide session. iOS only gives the camera to one capture session
+    /// at a time — creating a new one per screen leaves the old one shutting
+    /// down asynchronously and the new one can hang starting up.
+    static let shared = CameraSessionManager()
+
     /// Requests permissions, configures the session, and starts it running.
     /// Preview views must not attach until this completes (`isReady == true`).
     func startup() async {
-        await requestAccess()
-        guard isAuthorized else {
-            setupError = "Camera access is required to record."
-            return
+        guard !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
+
+        if !isReady {
+            await requestAccess()
+            guard isAuthorized else {
+                setupError = "Camera access is required to record."
+                return
+            }
+            configureSession()
+            guard rearInput != nil else { return } // configureSession already set setupError.
         }
-        configureSession()
-        guard rearInput != nil else { return } // configureSession already set setupError.
-        // Wait for startRunning to finish before announcing readiness —
-        // starting a recording against a non-running session never fires the
-        // delegate and hangs the pipeline.
+        setupError = nil
+
+        // (Re)start if a previous screen shut the session down; wait until
+        // running completes before announcing readiness.
         nonisolated(unsafe) let session = self.session
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             sessionQueue.async {
@@ -112,10 +127,10 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
         // Multi-cam sessions must use .inputPriority (per AVCaptureMultiCamSession docs).
         session.sessionPreset = .inputPriority
 
-        // Prefer dual/triple virtual devices so 0.5x zoom reaches the ultra-wide.
-        let rearDevice = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back)
-            ?? AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back)
-            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+        // The plain wide camera keeps 1.0x meaning "1x": virtual (dual/triple)
+        // devices treat 1.0 as the ultra-wide FOV, which skews every zoom step.
+        // 0.5x is reached by swapping to the discrete ultra-wide camera instead.
+        let rearDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
         guard let rearDevice,
               let rear = try? AVCaptureDeviceInput(device: rearDevice),
               session.canAddInput(rear) else {
@@ -134,6 +149,9 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
         }
 
         session.addOutputWithNoConnections(movieOutput)
+        // The output itself clamps the clip to exactly `maximumDuration`, so
+        // stop-latency can't push the file past the 2–4 s window.
+        movieOutput.maxRecordedDuration = CMTime(seconds: Self.maximumDuration, preferredTimescale: 600)
         rebuildConnections()
     }
 
@@ -173,7 +191,12 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
     ) -> AVCaptureConnection? {
         guard let layer, let input,
               let port = input.ports.first(where: { $0.mediaType == .video }) else { return nil }
-        layer.session = session
+        // Bind WITHOUT an implicit connection — assigning `layer.session`
+        // would auto-connect the layer to some input and block rebinding it
+        // later (camera switch). Must run inside begin/commitConfiguration.
+        if layer.session !== session {
+            layer.setSessionWithNoConnection(session)
+        }
         let connection = AVCaptureConnection(inputPort: port, videoPreviewLayer: layer)
         guard session.canAddConnection(connection) else { return nil }
         session.addConnection(connection)
@@ -217,22 +240,49 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
         }
     }
 
-    /// Sets the primary camera's zoom. 0.5 maps to the widest available factor
-    /// (ultra-wide on supporting devices), and everything is clamped to the
-    /// device's supported range.
+    /// Smoothly ramps the primary camera's zoom. 0.5 maps to the widest
+    /// available factor (ultra-wide on supporting devices), and everything is
+    /// clamped to the device's supported range.
     func setZoom(_ factor: CGFloat) {
         guard let device = primaryInput?.device else { return }
-        let minFactor = device.minAvailableVideoZoomFactor
-        let maxFactor = Swift.min(device.maxAvailableVideoZoomFactor, 10)
+        // Zoom semantics: 1x/2x belong to the wide camera; 0.5x needs the
+        // discrete ultra-wide. Swap between them as the requested factor
+        // changes so the numbers always mean what they say.
+        if factor < 1, !isFrontPrimary, device.deviceType != .builtInUltraWideCamera {
+            swapRearInput(toUltraWide: true)
+        } else if factor >= 1, !isFrontPrimary, device.deviceType == .builtInUltraWideCamera {
+            swapRearInput(toUltraWide: false)
+        }
+        let target = primaryInput?.device ?? device
+        let minFactor = target.minAvailableVideoZoomFactor
+        let maxFactor = Swift.min(target.maxAvailableVideoZoomFactor, 10)
         let clamped = factor < 1 ? minFactor : Swift.min(Swift.max(factor, minFactor), maxFactor)
         do {
-            try device.lockForConfiguration()
-            device.videoZoomFactor = clamped
-            device.unlockForConfiguration()
+            try target.lockForConfiguration()
+            target.ramp(toVideoZoomFactor: clamped, withRate: 6)
+            target.unlockForConfiguration()
             zoomFactor = clamped
         } catch {
             // Unsupported factor for this device; keep the previous zoom.
         }
+    }
+
+    /// Swaps the rear input between the wide and ultra-wide cameras.
+    private func swapRearInput(toUltraWide: Bool) {
+        let deviceType: AVCaptureDevice.DeviceType = toUltraWide ? .builtInUltraWideCamera : .builtInWideAngleCamera
+        guard let device = AVCaptureDevice.default(deviceType, for: .video, position: .back),
+              device !== rearInput?.device,
+              let newInput = try? AVCaptureDeviceInput(device: device),
+              session.canAddInput(newInput) else { return }
+
+        session.beginConfiguration()
+        if let old = rearInput {
+            session.removeInput(old)
+        }
+        session.addInputWithNoConnections(newInput)
+        rearInput = newInput
+        rebuildConnections()
+        session.commitConfiguration()
     }
 
     // MARK: - Recording
@@ -295,8 +345,13 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
     ) {
         // The file's own duration is authoritative; wall-clock measurement
         // overshoots because this delegate fires slightly after the auto-stop.
+        // A small tolerance above `maximumDuration` accepts the latency of
+        // the stop itself; the reported duration is clamped downstream.
         let duration = output.recordedDuration.seconds
-        let failed = (error != nil) || duration.isNaN || !Self.isValidDuration(duration)
+        let failed = (error != nil) || duration.isNaN
+            || duration < Self.minimumDuration
+            || duration > Self.maximumDuration * 1.1
+        let reported = Swift.min(duration, Self.maximumDuration)
         Task { @MainActor in
             guard self.isRecording else { return }
             self.isRecording = false
@@ -307,7 +362,7 @@ final class CameraSessionManager: NSObject, AVCaptureFileOutputRecordingDelegate
                 self.recordingEnded = nil
                 return
             }
-            self.recordingEnded?(outputFileURL, duration)
+            self.recordingEnded?(outputFileURL, reported)
             self.recordingEnded = nil
         }
     }

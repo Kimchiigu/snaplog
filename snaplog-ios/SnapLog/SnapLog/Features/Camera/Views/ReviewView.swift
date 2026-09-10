@@ -90,7 +90,7 @@ struct ReviewView: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.white)
                         .frame(width: 40, height: 40)
-                        .background(Circle().fill(Theme.card))
+                        .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
                 }
                 .accessibilityLabel("Discard clip")
                 Spacer()
@@ -135,7 +135,7 @@ struct ReviewView: View {
                                 .font(.body)
                                 .foregroundStyle(.white)
                                 .frame(width: 40, height: 40)
-                                .background(Circle().fill(.black.opacity(0.45)))
+                                .glassEffect(.regular.tint(.black.opacity(0.5)), in: .circle)
                         }
                         .accessibilityLabel(isMuted ? "Unmute preview" : "Mute preview")
                         Spacer()
@@ -144,7 +144,7 @@ struct ReviewView: View {
                                 .font(.body.weight(.semibold))
                                 .foregroundStyle(savedToPhotos == true ? Theme.accent : .white)
                                 .frame(width: 40, height: 40)
-                                .background(Circle().fill(.black.opacity(0.45)))
+                                .glassEffect(.regular.tint(.black.opacity(0.5)), in: .circle)
                         }
                         .accessibilityLabel("Save to Photos")
                     }
