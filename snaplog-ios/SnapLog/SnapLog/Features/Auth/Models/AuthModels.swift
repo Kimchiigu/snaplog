@@ -1,4 +1,3 @@
-
 import Foundation
 
 struct AppleAuthRequest: Encodable, Sendable {

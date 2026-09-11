@@ -1,4 +1,3 @@
-
 import Foundation
 
 struct PlaybackClip: Identifiable, Codable, Hashable, Sendable {

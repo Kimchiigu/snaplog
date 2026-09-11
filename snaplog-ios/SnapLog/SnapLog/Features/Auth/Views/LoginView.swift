@@ -1,4 +1,3 @@
-
 import AuthenticationServices
 import SwiftUI
 
@@ -216,19 +215,19 @@ struct EmailFormSheet: View {
     @State private var displayName = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack {
                 Text("Continue with email")
-                    .font(.headline)
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(.white)
                 Spacer()
                 Button {
                     dismiss()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(Color(hex: 0x8E8E93))
-                        .frame(width: 30, height: 30)
+                        .frame(width: 32, height: 32)
                         .background(Circle().fill(.white.opacity(0.1)))
                 }
                 .accessibilityLabel("Dismiss")
@@ -240,17 +239,31 @@ struct EmailFormSheet: View {
                 }
             }
             .pickerStyle(.segmented)
+            .padding(.bottom, 4)
 
-            TextField("Email", text: $email)
+            VStack(spacing: 14) {
+                CustomDarkTextField(
+                    placeholder: "Email",
+                    iconName: "envelope.fill",
+                    text: $email
+                )
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
-            if emailMode == .register {
-                TextField("Display Name", text: $displayName)
-                    .textFieldStyle(.roundedBorder)
+
+                CustomDarkSecureField(
+                    placeholder: "Password",
+                    iconName: "lock.fill",
+                    text: $password
+                )
+
+                if emailMode == .register {
+                    CustomDarkTextField(
+                        placeholder: "Display Name",
+                        iconName: "person.fill",
+                        text: $displayName
+                    )
+                }
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -262,19 +275,20 @@ struct EmailFormSheet: View {
             Button {
                 Task { await submit() }
             } label: {
-                HStack {
-                    if viewModel.isLoading { ProgressView().tint(.white) }
+                HStack(spacing: 12) {
+                    if viewModel.isLoading {
+                        ProgressView().tint(.black)
+                    }
                     Text(emailMode == .signIn ? "Sign In" : "Create Account")
-                        .font(.body.weight(.semibold))
-                    Spacer()
+                        .font(.body.weight(.bold))
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
+                .foregroundStyle(.black)
                 .frame(height: 52)
                 .frame(maxWidth: .infinity)
-                .background(Capsule().fill(.black))
+                .background(Capsule().fill(.white))
             }
             .disabled(viewModel.isLoading)
+            .padding(.top, 8)
 
             Spacer()
         }
@@ -284,16 +298,75 @@ struct EmailFormSheet: View {
     }
 
     private func submit() async {
-        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard email.contains("@"), !password.isEmpty else { return }
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedEmail.contains("@"), !password.isEmpty else { return }
+        
         switch emailMode {
         case .signIn:
-            await viewModel.login(email: email, password: password)
+            await viewModel.login(email: trimmedEmail, password: password)
         case .register:
-            let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, password.count >= 8 else { return }
-            await viewModel.register(email: email, password: password, displayName: name)
+            let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty, password.count >= 8 else { return }
+            await viewModel.register(email: trimmedEmail, password: password, displayName: trimmedName)
         }
+    }
+}
+
+struct CustomDarkTextField: View {
+    let placeholder: String
+    let iconName: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.subheadline)
+                .foregroundStyle(Color(hex: 0x8E8E93))
+                .frame(width: 20)
+
+            TextField("", text: $text, prompt: Text(placeholder).foregroundColor(Color(hex: 0x636366)))
+                .foregroundStyle(.white)
+                .font(.body)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: 0x2C2C2E))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
+}
+
+struct CustomDarkSecureField: View {
+    let placeholder: String
+    let iconName: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.subheadline)
+                .foregroundStyle(Color(hex: 0x8E8E93))
+                .frame(width: 20)
+
+            SecureField("", text: $text, prompt: Text(placeholder).foregroundColor(Color(hex: 0x636366)))
+                .foregroundStyle(.white)
+                .font(.body)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 52)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: 0x2C2C2E))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
     }
 }
 

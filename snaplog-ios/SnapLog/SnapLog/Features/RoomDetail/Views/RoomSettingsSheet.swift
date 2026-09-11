@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 struct RoomSettingsSheet: View {

@@ -1,4 +1,3 @@
-
 import AVKit
 import OSLog
 import Photos
@@ -110,17 +109,6 @@ struct RoomDetailView: View {
             }
             .accessibilityLabel("Back")
 
-            Button {
-                showingHistory = true
-            } label: {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.body)
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 40, height: 40)
-                    .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
-            }
-            .accessibilityLabel("Room history")
-
             Spacer()
 
             Button {
@@ -142,6 +130,17 @@ struct RoomDetailView: View {
             .accessibilityLabel("Room \(effectiveRoom.displayName), settings")
 
             Spacer()
+            
+            Button {
+                showingHistory = true
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.body)
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 40, height: 40)
+                    .glassEffect(.regular.tint(.black.opacity(0.6)), in: .circle)
+            }
+            .accessibilityLabel("Room history")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -283,9 +282,12 @@ struct RoomDetailView: View {
                                 .foregroundStyle(Theme.canvas)
                                 .padding(.horizontal, 24)
                                 .padding(.vertical, 12)
-                                .glassEffect(.regular.tint(Theme.accent.opacity(0.9)), in: .capsule)
+                                .background(
+                                    Capsule()
+                                        .fill(Theme.accent.opacity(0.9))
+                                )
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.plain)
                         .accessibilityLabel("Tap to capture a clip for this room")
                         .frame(maxWidth: .infinity)
                         .padding(.top, 10)

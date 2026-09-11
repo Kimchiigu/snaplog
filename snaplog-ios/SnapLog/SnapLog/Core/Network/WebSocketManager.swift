@@ -1,4 +1,3 @@
-
 import Foundation
 
 enum PresenceEvent: Sendable, Equatable {

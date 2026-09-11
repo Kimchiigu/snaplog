@@ -1,4 +1,3 @@
-
 import CoreMotion
 import Observation
 import UIKit

@@ -1,14 +1,5 @@
-//
-//  NotificationsListView.swift
-//  SnapLog
-//
-//  Created by Christopher Hardy Gunawan on 10/09/26.
-//
-
 import SwiftUI
 
-/// The bell sheet: recent "X logged a clip" events, newest first. Tapping an
-/// item jumps straight into that room.
 struct NotificationsListView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -54,7 +45,10 @@ struct NotificationsListView: View {
             onOpenRoom(item.roomID)
         } label: {
             HStack(spacing: 12) {
-                SmileyIcon(color: Theme.accent, size: 22)
+                Image("SnapLogLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 26, height: 26)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(Theme.cardElevated))
 

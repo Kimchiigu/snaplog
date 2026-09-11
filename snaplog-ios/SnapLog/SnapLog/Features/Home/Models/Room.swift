@@ -1,4 +1,3 @@
-
 import Foundation
 
 struct Room: Identifiable, Codable, Hashable, Sendable {

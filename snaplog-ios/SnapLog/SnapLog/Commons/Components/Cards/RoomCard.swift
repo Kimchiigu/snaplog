@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 struct RoomCard: View {

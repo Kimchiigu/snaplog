@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 extension ButtonStyle where Self == PrimaryButtonStyle {

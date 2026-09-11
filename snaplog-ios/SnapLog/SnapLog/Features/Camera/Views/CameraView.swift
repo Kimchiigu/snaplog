@@ -1,4 +1,3 @@
-
 import SwiftUI
 
 struct CameraView: View {
@@ -158,7 +157,7 @@ struct CameraView: View {
 
     private var zoomBar: some View {
         GlassEffectContainer(spacing: 4) {
-            HStack(spacing: 4) {
+            HStack(spacing: 6) {
                 ForEach([0.5, 1.0, 2.0], id: \.self) { factor in
                     Button {
                         selectedZoom = factor
@@ -167,15 +166,17 @@ struct CameraView: View {
                         Text(factor == 0.5 ? ".5" : String(Int(factor)))
                             .font(.subheadline.monospacedDigit().weight(.semibold))
                             .foregroundStyle(selectedZoom == factor ? Theme.canvas : .white)
+                            .padding(8)
                             .background(
-                                Circle().fill(selectedZoom == factor ? Theme.accent : .clear)
+                                Circle()
+                                    .fill(selectedZoom == factor ? Theme.accent : .clear)
                             )
-                            .frame(width: 38, height: 38)
+                            .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel("\(factor) times zoom")
                 }
             }
-            .padding(5)
+            .padding(6)
             .glassEffect(.regular.tint(.black.opacity(0.5)), in: .capsule)
         }
         .padding(.bottom, 18)
