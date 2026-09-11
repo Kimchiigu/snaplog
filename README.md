@@ -1,5 +1,8 @@
 # SnapLog
 
+<img src="snaplog-backend/docs/snaplog-cover.png">
+<img src="snaplog-backend/docs/snaplog-mockup.png">
+
 SnapLog is a shared video-log app: members of a room record short video "logs", upload them straight to object storage, and watch them back on a collaborative timeline. The project has two parts that live side by side in this repository:
 
 | Folder | What it is |
@@ -7,14 +10,11 @@ SnapLog is a shared video-log app: members of a room record short video "logs", 
 | [`snaplog-ios/`](snaplog-ios/) | SwiftUI iOS client (camera capture, rooms, auth, presence) |
 | [`snaplog-backend/`](snaplog-backend/) | Vapor 4 API server, background worker, admin dashboard, and infrastructure |
 
-Product requirements: [`PRD-IOS.md`](PRD-IOS.md) · [`PRD-BACKEND.md`](PRD-BACKEND.md)
-
 ---
 
 ## Architecture at a glance
 
 <img src="snaplog-backend/docs/snaplog-diagram.png">
-
 
 **Key design decisions**
 
